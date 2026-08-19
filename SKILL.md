@@ -3,7 +3,8 @@ name: browser-debug-agent
 description: Debug, repair, and verify browser-facing applications through an evidence-led execution loop. Use for reproducible UI bugs, local web-app testing, console or network failures, interaction defects, responsive layout checks, and browser-visible regression verification. Prefer the project's existing browser tooling; otherwise select the cheapest compatible CLI runtime.
 metadata:
   category: browser-testing
-  tags: browser-debugging, browser-automation, ui-testing, playwright, chrome-devtools, agent-skills
+  tags: agent-skills, browser-debugging, browser-automation, browser-testing, ui-testing, playwright, chrome-devtools, obscura
+  compatibility: Requires shell access; Playwright, Chrome/Chromium, and Obscura are optional runtime choices.
 ---
 
 # Browser Debug Agent
