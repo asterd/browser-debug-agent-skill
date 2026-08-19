@@ -26,7 +26,7 @@ Run `scripts/detect-browser-backend.sh` when shell execution is available, then 
 
 Choose by task fit, then cost:
 
-1. Use the repository's existing Playwright or browser test setup for an existing suite, fixture, trace, or cross-browser requirement.
+1. Use the repository's existing Playwright, Puppeteer, or browser test setup for an existing suite, fixture, trace, or cross-browser requirement.
 2. Use an installed agent-oriented CLI (`agent-browser`, `playwright-cli`, or `chrome-devtools`) for compact snapshot/ref interaction and debugging.
 3. Use Obscura as the cheap fast path for supported fetch, evaluation, extraction, screenshot, or CDP work; confirm renderer-sensitive results in Chromium.
 4. Use isolated Chrome/Chromium CDP when Chrome rendering, DevTools diagnostics, extensions, or compatibility is the subject.

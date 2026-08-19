@@ -73,6 +73,18 @@ interactive_kiro_target=$interactive_kiro_project/.kiro/skills/browser-debug-age
 [ -f "$interactive_kiro_target/SKILL.md" ]
 [ ! -e "$interactive_kiro_project/.agents/skills/browser-debug-agent" ]
 
+# Missing runtimes are opt-in: declining every prompt leaves project dependencies untouched.
+runtime_prompt_project=$test_root/runtime-prompt-project
+mkdir -p "$runtime_prompt_project"
+printf '%s\n' '{"name":"runtime-prompt-fixture","private":true}' >"$runtime_prompt_project/package.json"
+(
+  cd "$runtime_prompt_project"
+  printf '2\n1\nn\nn\nn\n' | HOME="$test_root/home" PATH="/usr/bin:/bin" \
+    "$repo_root/scripts/install.sh" --source "$repo_root" --interactive
+)
+[ -f "$runtime_prompt_project/.agents/skills/browser-debug-agent/SKILL.md" ]
+[ ! -e "$runtime_prompt_project/node_modules" ]
+
 # Kiro uses native global and workspace skill directories, including KIRO_HOME.
 kiro_home=$test_root/kiro-home
 HOME="$test_root/home" KIRO_HOME="$kiro_home" "$repo_root/scripts/install.sh" \

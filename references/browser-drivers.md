@@ -29,6 +29,10 @@ Typical probe:
 
 Use fail-fast and compact reporting while iterating. Add trace retention only for the decisive failure or when event order remains ambiguous.
 
+### Puppeteer projects
+
+Use an existing project-local Puppeteer setup when its scripts or tests own the failing flow. Puppeteer is a programmatic CDP library rather than an agent-oriented snapshot CLI, so prefer its existing project scripts or a narrow source-owned Node probe. Do not add it merely to replace an already working Playwright setup.
+
 ## Agent-oriented CLI runtimes
 
 ### agent-browser

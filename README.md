@@ -68,6 +68,8 @@ The local installer supports `codex`, `claude-code`, `cursor`, `gemini-cli`, `ki
 
 For a local Kiro-only installation with this bundle, run `./scripts/install.sh --scope project --agent kiro --yes`. Its target is exactly `.kiro/skills/browser-debug-agent/`.
 
+During an interactive installation, the script checks Obscura, project-local Playwright Chromium, and project-local Puppeteer. For each missing runtime it asks before downloading anything. Obscura installs as a user-local binary; Playwright and Puppeteer are added only to a project with `package.json`. Playwright is the default E2E choice; Puppeteer is offered for projects that need its programmatic CDP API.
+
 It is also the updater. Re-run the same command after updating the checkout:
 
 ```bash
@@ -131,6 +133,7 @@ The JSON result distinguishes:
 - repository-local Playwright test runner;
 - `agent-browser`;
 - Playwright's `playwright-cli`;
+- project-local Puppeteer;
 - the experimental `chrome-devtools` CLI;
 - Obscura;
 - Chrome/Chromium CDP fallback.

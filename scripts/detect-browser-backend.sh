@@ -42,6 +42,9 @@ if [ -x "./node_modules/.bin/playwright" ]; then
   project_playwright_ver=$(first_line ./node_modules/.bin/playwright --version)
 fi
 
+project_puppeteer_dir=""
+if [ -d "./node_modules/puppeteer" ]; then project_puppeteer_dir="./node_modules/puppeteer"; fi
+
 devtools_cmd=""; devtools_ver=""
 if has chrome-devtools; then devtools_cmd=$(command -v chrome-devtools); devtools_ver=$(first_line chrome-devtools --version); fi
 
@@ -61,6 +64,7 @@ fi
 recommended="none"
 reason="No supported browser runtime detected"
 if [ -n "$project_playwright_cmd" ]; then recommended="project-playwright"; reason="Repository-local browser tooling preserves project configuration"
+elif [ -n "$project_puppeteer_dir" ]; then recommended="project-puppeteer"; reason="Repository-local Puppeteer is available for existing project automation"
 elif [ -n "$agent_browser_cmd" ]; then recommended="agent-browser"; reason="AI-oriented persistent CLI with snapshot refs and JSON output"
 elif [ -n "$playwright_cli_cmd" ]; then recommended="playwright-cli"; reason="Agent CLI with accessibility snapshots and element refs"
 elif [ -n "$devtools_cmd" ]; then recommended="chrome-devtools"; reason="Persistent Chrome DevTools CLI is available"
@@ -74,6 +78,7 @@ printf '  "recommended": "%s",\n' "$recommended"
 printf '  "reason": "%s",\n' "$(json_escape "$reason")"
 printf '  "tools": {\n'
 if [ -n "$project_playwright_cmd" ]; then emit_tool project-playwright "$project_playwright_cmd" true "$project_playwright_ver"; else emit_tool project-playwright "" false ""; fi
+if [ -n "$project_puppeteer_dir" ]; then emit_tool project-puppeteer "$project_puppeteer_dir" true ""; else emit_tool project-puppeteer "" false ""; fi
 if [ -n "$agent_browser_cmd" ]; then emit_tool agent-browser "$agent_browser_cmd" true "$agent_browser_ver"; else emit_tool agent-browser "" false ""; fi
 if [ -n "$playwright_cli_cmd" ]; then emit_tool playwright-cli "$playwright_cli_cmd" true "$playwright_cli_ver"; else emit_tool playwright-cli "" false ""; fi
 if [ -n "$devtools_cmd" ]; then emit_tool chrome-devtools "$devtools_cmd" true "$devtools_ver"; else emit_tool chrome-devtools "" false ""; fi

@@ -34,6 +34,7 @@ Usage: scripts/install.sh [options]
 Environment for curl/bootstrap mode:
   BDA_REPOSITORY   GitHub owner/repo (default: asterd/browser-debug-agent-skill)
   BDA_REF          branch, tag, or commit (default: main)
+  BDA_BIN_DIR      Obscura install directory (default: ~/.local/bin)
 EOF
 }
 
@@ -77,8 +78,13 @@ fi
 prompt_read() {
   prompt=$1
   printf '%s' "$prompt" >&2
-  IFS= read -r reply < "$prompt_input"
+  if ! IFS= read -r reply < "$prompt_input"; then reply=""; fi
   printf '%s' "$reply"
+}
+
+prompt_yes_no() {
+  answer=$(prompt_read "$1 [y/N]: ")
+  case "$answer" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
 }
 
 if [ "$scope_explicit" = false ] && [ "$assume_yes" = false ] && [ -n "$prompt_input" ]; then
@@ -197,6 +203,115 @@ fi
 [ -n "$requested_agents" ] || die "no host selected or detected; pass --agent ID"
 
 for agent in $requested_agents; do agent_command "$agent" >/dev/null || die "unsupported host: $agent"; done
+
+project_package_manager() {
+  [ -f package.json ] || return 1
+  if [ -f pnpm-lock.yaml ] && has pnpm; then printf '%s' pnpm
+  elif [ -f yarn.lock ] && has yarn; then printf '%s' yarn
+  elif has npm; then printf '%s' npm
+  else return 1
+  fi
+}
+
+playwright_command() {
+  if [ -x node_modules/.bin/playwright ]; then
+    printf '%s' ./node_modules/.bin/playwright
+  else
+    return 1
+  fi
+}
+
+playwright_chromium_available() {
+  playwright=$(playwright_command) || return 1
+  "$playwright" install --list 2>/dev/null | grep -q 'chromium'
+}
+
+install_obscura() {
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64|Darwin-aarch64) obscura_asset=obscura-aarch64-macos.tar.gz ;;
+    Darwin-x86_64) obscura_asset=obscura-x86_64-macos.tar.gz ;;
+    Linux-x86_64) obscura_asset=obscura-x86_64-linux.tar.gz ;;
+    Linux-aarch64|Linux-arm64) obscura_asset=obscura-aarch64-linux.tar.gz ;;
+    *) die "automatic Obscura install is unsupported on $(uname -s)/$(uname -m); install it from the official releases" ;;
+  esac
+  has curl || die "curl is required to install Obscura"
+  has tar || die "tar is required to install Obscura"
+  runtime_stage=$(mktemp -d "${TMPDIR:-/tmp}/bda-obscura.XXXXXX")
+  archive=$runtime_stage/$obscura_asset
+  url="https://github.com/h4ckf0r0day/obscura/releases/latest/download/$obscura_asset"
+  printf 'Downloading Obscura release %s...\n' "$obscura_asset"
+  curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$archive"
+  tar -tzf "$archive" | awk '$0 ~ /^\// || $0 ~ /(^|\/)\.\.(\/|$)/ { bad=1 } END { exit bad }' || die "unsafe Obscura archive paths"
+  tar -xzf "$archive" -C "$runtime_stage"
+  obscura_binary=$(find "$runtime_stage" -type f -name obscura -perm -u+x -print | awk 'NR == 1 { print; exit }')
+  [ -n "$obscura_binary" ] || die "Obscura archive did not contain an executable"
+  bin_dir=${BDA_BIN_DIR:-$HOME/.local/bin}
+  mkdir -p "$bin_dir"
+  cp "$obscura_binary" "$bin_dir/obscura"
+  obscura_worker=$(find "$runtime_stage" -type f -name obscura-worker -perm -u+x -print | awk 'NR == 1 { print; exit }')
+  [ -z "$obscura_worker" ] || cp "$obscura_worker" "$bin_dir/obscura-worker"
+  rm -rf "$runtime_stage"
+  "$bin_dir/obscura" --version >/dev/null
+  printf 'Installed Obscura -> %s/obscura\n' "$bin_dir"
+  case ":${PATH:-}:" in *":$bin_dir:"*) ;; *) printf 'Add %s to PATH before restarting your agent host.\n' "$bin_dir" ;; esac
+}
+
+install_project_playwright() {
+  manager=$(project_package_manager) || die "Playwright installation requires package.json and npm, pnpm, or yarn"
+  case "$manager" in
+    npm) npm install --save-dev @playwright/test@latest ;;
+    pnpm) pnpm add --save-dev @playwright/test@latest ;;
+    yarn) yarn add --dev @playwright/test@latest ;;
+  esac
+  playwright=$(playwright_command) || die "Playwright package installation did not create its local CLI"
+  "$playwright" install chromium
+}
+
+install_project_puppeteer() {
+  manager=$(project_package_manager) || die "Puppeteer installation requires package.json and npm, pnpm, or yarn"
+  case "$manager" in
+    npm) npm install --save-dev puppeteer ;;
+    pnpm) pnpm add --save-dev puppeteer ;;
+    yarn) yarn add --dev puppeteer ;;
+  esac
+  if [ -x node_modules/.bin/puppeteer ]; then
+    ./node_modules/.bin/puppeteer browsers install
+  else
+    npx puppeteer browsers install
+  fi
+}
+
+provision_optional_runtimes() {
+  [ -n "$prompt_input" ] || return 0
+  printf '%s\n' 'Browser runtime check:' >&2
+  if has obscura; then
+    printf '%s\n' '  Obscura: available' >&2
+  elif prompt_yes_no '  Obscura is missing. Install the native headless binary to ~/.local/bin?'; then
+    install_obscura
+  else
+    printf '%s\n' '  Obscura: skipped' >&2
+  fi
+
+  if [ -f package.json ]; then
+    if playwright_chromium_available; then
+      printf '%s\n' '  Playwright Chromium: available' >&2
+    elif prompt_yes_no '  Playwright Chromium is missing. Install @playwright/test and Chromium for this project?'; then
+      install_project_playwright
+    else
+      printf '%s\n' '  Playwright: skipped' >&2
+    fi
+
+    if [ -d node_modules/puppeteer ]; then
+      printf '%s\n' '  Puppeteer: available' >&2
+    elif prompt_yes_no '  Puppeteer is missing. Install it with Chrome for Testing for this project?'; then
+      install_project_puppeteer
+    else
+      printf '%s\n' '  Puppeteer: skipped' >&2
+    fi
+  else
+    printf '%s\n' '  Playwright/Puppeteer: skipped (no package.json in the current project)' >&2
+  fi
+}
 
 cleanup_dir=""
 current_stage=""
@@ -333,5 +448,7 @@ for agent in $requested_agents; do
     printf 'Installed %s -> %s\n' "$skill_name" "$target"
   fi
 done
+
+provision_optional_runtimes
 
 printf 'Restart the selected agent host(s), then ask for a browser UI debug or verification task.\n'
