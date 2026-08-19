@@ -50,6 +50,25 @@ grep -q 'upgrade-smoke-marker' "$project_target/SKILL.md"
 set -- "$test_root/project/.browser-debug/installer-backups/codex"/*
 [ -e "$1/SKILL.md" ]
 
+# Kiro uses native global and workspace skill directories, including KIRO_HOME.
+kiro_home=$test_root/kiro-home
+HOME="$test_root/home" KIRO_HOME="$kiro_home" "$repo_root/scripts/install.sh" \
+  --source "$repo_root" --agent kiro --scope global --mode copy --yes
+kiro_global_target=$kiro_home/skills/browser-debug-agent
+[ -f "$kiro_global_target/SKILL.md" ]
+HOME="$test_root/home" KIRO_HOME="$kiro_home" "$repo_root/scripts/install.sh" \
+  --source "$updated_source" --agent kiro --scope global --mode copy --yes
+grep -q 'upgrade-smoke-marker' "$kiro_global_target/SKILL.md"
+set -- "$test_root/home/.local/state/browser-debug-agent/backups/kiro"/*
+[ -e "$1/SKILL.md" ]
+(
+  cd "$test_root/project"
+  HOME="$test_root/home" KIRO_HOME="$kiro_home" "$repo_root/scripts/install.sh" \
+    --source "$repo_root" --agent kiro --scope project --mode copy --yes
+)
+kiro_project_target=$test_root/project/.kiro/skills/browser-debug-agent
+[ -f "$kiro_project_target/SKILL.md" ]
+
 # A foreign collision is not overwritten without --force.
 foreign_home=$test_root/foreign-home
 foreign_target=$foreign_home/.codex/skills/browser-debug-agent

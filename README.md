@@ -16,7 +16,7 @@ The skill provides that lifecycle while keeping observations token-efficient: ac
 
 ## Install
 
-The open [Agent Skills CLI](https://github.com/vercel-labs/skills) is the recommended installer because it already detects and supports Codex, Claude Code, Cursor, Gemini CLI, GitHub Copilot, OpenCode, and many other hosts.
+The open [Agent Skills CLI](https://github.com/vercel-labs/skills) is the recommended installer because it already detects and supports Codex, Claude Code, Cursor, Gemini CLI, Kiro, GitHub Copilot, OpenCode, and many other hosts.
 
 ```bash
 # Global, interactive host selection
@@ -25,6 +25,9 @@ npx skills add asterd/browser-debug-agent-skill -g
 # Example: Codex and Claude Code, non-interactive
 npx skills add asterd/browser-debug-agent-skill -g \
   --agent codex --agent claude-code --yes
+
+# Kiro CLI, global
+npx skills add asterd/browser-debug-agent-skill -g --agent kiro-cli --yes
 ```
 
 From a local checkout:
@@ -41,13 +44,16 @@ From a local checkout:
   --agent codex --agent claude-code --yes
 ```
 
-The local installer supports `codex`, `claude-code`, `cursor`, `gemini-cli`, `github-copilot`, `opencode`, and the shared `universal` location.
+The local installer supports `codex`, `claude-code`, `cursor`, `gemini-cli`, `kiro`, `github-copilot`, `opencode`, and the shared `universal` location. Kiro installs to `~/.kiro/skills/` globally (or `$KIRO_HOME/skills/`) and `.kiro/skills/` for a workspace. The local installer calls this host `kiro`; the Agent Skills CLI calls it `kiro-cli`.
 
 It is also the updater. Re-run the same command after updating the checkout:
 
 ```bash
 # Global install/update from the current checkout
 ./scripts/install.sh --agent codex --yes
+
+# Kiro workspace install/update
+./scripts/install.sh --scope project --agent kiro --yes
 
 # Project-local install/update
 ./scripts/install.sh --scope project --agent codex --yes
@@ -126,20 +132,6 @@ tests/fixture-app/index.html      self-contained browser smoke fixture
 ```
 
 `SKILL.md` contains only guidance needed on every browser-debug task. Conditional backend, escalation, visual, and output-heavy detail is progressively disclosed through the references.
-
-## V2 direction
-
-A universal `bda` CLI is useful only if it adds a stable debugging contract above existing runtimes. Rebuilding navigation, sessions, snapshot refs, console/network capture, and CDP transport would duplicate mature projects such as:
-
-- [Vercel agent-browser](https://github.com/vercel-labs/agent-browser);
-- [Playwright agent CLI](https://playwright.dev/agent-cli/);
-- [Chrome DevTools MCP and CLI](https://github.com/ChromeDevTools/chrome-devtools-mcp);
-- [Tencent BrowserSkill](https://github.com/Tencent/BrowserSkill);
-- [Obscura](https://github.com/h4ckf0r0day/obscura).
-
-The proposed V2 is therefore an orchestrator: capability negotiation, normalized JSONL envelopes, task/session ownership, dev-server readiness, evidence collection, screenshot crop/diff, and an executable `verify` contract. Adapters should be thin and delegate interaction to installed runtimes.
-
-Before implementing it, require two interchangeable adapters, ownership-safe cleanup, redaction tests, and one end-to-end repair scenario that gains measurable value over invoking the backend CLI directly.
 
 ## Validate
 

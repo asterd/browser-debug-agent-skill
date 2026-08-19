@@ -17,7 +17,7 @@ Install browser-debug-agent for one or more agent hosts.
 
 Usage: scripts/install.sh [options]
 
-  --agent ID       codex, claude-code, cursor, gemini-cli,
+  --agent ID       codex, claude-code, cursor, gemini-cli, kiro,
                    github-copilot, opencode, or universal (repeatable)
   --scope SCOPE    global (default) or project
   --mode MODE      copy (default) or link; link requires a local checkout
@@ -67,6 +67,7 @@ agent_command() {
     claude-code) printf '%s' claude ;;
     cursor) printf '%s' cursor ;;
     gemini-cli) printf '%s' gemini ;;
+    kiro) printf '%s' kiro-cli ;;
     github-copilot) printf '%s' copilot ;;
     opencode) printf '%s' opencode ;;
     universal) printf '%s' "" ;;
@@ -77,13 +78,18 @@ agent_command() {
 agent_root() {
   agent=$1
   if [ "$scope" = project ]; then
-    case "$agent" in claude-code) printf '%s' "$(pwd)/.claude/skills" ;; *) printf '%s' "$(pwd)/.agents/skills" ;; esac
+    case "$agent" in
+      claude-code) printf '%s' "$(pwd)/.claude/skills" ;;
+      kiro) printf '%s' "$(pwd)/.kiro/skills" ;;
+      *) printf '%s' "$(pwd)/.agents/skills" ;;
+    esac
   else
     case "$agent" in
       codex) printf '%s' "$HOME/.codex/skills" ;;
       claude-code) printf '%s' "$HOME/.claude/skills" ;;
       cursor) printf '%s' "$HOME/.cursor/skills" ;;
       gemini-cli) printf '%s' "$HOME/.gemini/skills" ;;
+      kiro) printf '%s' "${KIRO_HOME:-$HOME/.kiro}/skills" ;;
       github-copilot) printf '%s' "$HOME/.copilot/skills" ;;
       opencode) printf '%s' "$HOME/.config/opencode/skills" ;;
       universal) printf '%s' "$HOME/.config/agents/skills" ;;
@@ -109,7 +115,7 @@ is_detected() {
   [ -d "$(agent_root "$agent")" ]
 }
 
-all_agents="codex claude-code cursor gemini-cli github-copilot opencode universal"
+all_agents="codex claude-code cursor gemini-cli kiro github-copilot opencode universal"
 detected_agents=""
 for agent in $all_agents; do
   if is_detected "$agent"; then detected_agents="${detected_agents}${detected_agents:+ }$agent"; fi
@@ -145,8 +151,9 @@ if [ -z "$requested_agents" ]; then
         number=$(printf '%s' "$number" | tr -d ' ')
         case "$number" in
           1) append_agent codex ;; 2) append_agent claude-code ;; 3) append_agent cursor ;;
-          4) append_agent gemini-cli ;; 5) append_agent github-copilot ;;
-          6) append_agent opencode ;; 7) append_agent universal ;;
+          4) append_agent gemini-cli ;; 5) append_agent kiro ;;
+          6) append_agent github-copilot ;; 7) append_agent opencode ;;
+          8) append_agent universal ;;
           *) die "invalid selection: $number" ;;
         esac
       done
