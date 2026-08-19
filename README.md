@@ -14,6 +14,8 @@ Browser CLIs are increasingly good at navigation and interaction. The missing la
 
 The skill provides that lifecycle while keeping observations token-efficient: accessibility/DOM snapshots, element refs, console and network evidence before screenshots or traces.
 
+When explicitly requested, it can also run the same scenario in a visible, isolated Playwright or Chrome session: fill safe test data, exercise controls and popups, resize viewports, inspect code against the observed behavior, and verify the result with structured evidence. Headless execution remains the default.
+
 ## Install
 
 The open [Agent Skills CLI](https://github.com/vercel-labs/skills) is the recommended installer because it already detects and supports Codex, Claude Code, Cursor, Gemini CLI, Kiro, GitHub Copilot, OpenCode, and many other hosts.

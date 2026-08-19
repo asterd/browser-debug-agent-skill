@@ -123,9 +123,15 @@ Read `references/token-economy.md` when output is large or the task spans severa
 Open a headed Chrome/Chromium window only when the user explicitly asks to see, watch, or present the browser output. Keep ordinary diagnostic work headless or CLI-first.
 
 - Launch a separate temporary profile with a loopback-only, dynamically selected CDP port; never expose or attach the user's normal profile by default.
-- Navigate only to the agreed target and state what is being shown. Open DevTools only when the user asks to inspect diagnostics, not merely to see the page.
+- Use the project's Playwright setup in headed mode when it already owns the scenario; otherwise use isolated Chrome/Chromium CDP. Inspect current CLI help or project configuration before choosing headed flags.
+- Navigate only to the agreed target and state what is being shown. In the visible session, the agent may fill safe test fields, click controls, exercise popup open/close and focus behavior, and change viewport sizes when those actions are within the requested scenario.
+- Derive the interaction checklist from the code and the requested flow: relevant form validation and submit states, dialogs/popups, keyboard/focus paths, required requests, and representative responsive breakpoints. Re-snapshot after each state change and inspect the causal source when the behavior diverges.
+- Do not submit production forms, send messages, make purchases, delete data, or use real credentials merely because the session is visible; obtain explicit authorization for each consequential action.
+- Open DevTools only when the user asks to inspect diagnostics, not merely to see the page. Visual observation supplements console, network, DOM, and code evidence; it never replaces them.
 - Record the owned process, profile directory, port, and URL; keep the window open only for the requested review and close owned resources afterward.
 - Treat a request to present output as authorization to open the isolated window, not as authorization for production mutations or sensitive-data access.
+
+Read `references/browser-drivers.md` for the headed interaction and responsive-check workflow.
 
 ## Definition of done
 

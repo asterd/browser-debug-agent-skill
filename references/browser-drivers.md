@@ -91,6 +91,19 @@ Use Chrome for Chrome-specific rendering, extension work, DevTools diagnostics, 
 
 Do not attach to a person's primary profile unless explicitly requested. A local debugging endpoint grants full browser control to other local processes; close it after the task.
 
+## Headed interaction and responsive review
+
+Use a headed session only when the user asks to watch or inspect the browser. This is an interaction mode, not a weaker form of verification.
+
+1. State the target URL and the bounded scenario. Start from a known state.
+2. Prefer the repository's Playwright setup when it has the route, fixtures, and browser configuration needed for the scenario. Run it headed only through its documented configuration or current CLI help. Otherwise launch isolated Chrome/Chromium with a temporary profile and loopback-only CDP.
+3. Read the relevant UI code before broad exploration. Turn it into a compact checklist: inputs and validation, primary action, loading/error/success states, popup/dialog trigger and dismissal, focus/keyboard behavior, required requests, and named responsive viewport sizes.
+4. Perform actions one at a time, re-snapshot after each meaningful page change, and capture console/network/DOM evidence for the first divergence. Use screenshots only as focused visual evidence.
+5. Resize to the requested or code-relevant breakpoints; check semantic visibility, overflow, hit targets, geometry, and the interaction path at each viewport. Do not infer responsive correctness from one desktop screenshot.
+6. Inspect the smallest causal source area before patching. After a change, reload/reset and repeat the same checklist in the same browser mode; confirm the regression with the cheapest applicable headless or project test too.
+
+Visible sessions may fill safe test data and operate non-consequential controls. They do not authorize real account use, irreversible submissions, communication, payments, or deletion. Ask before any such step even if the user is watching.
+
 ## Selection matrix
 
 | Task | Default | Verification boundary |
