@@ -47,6 +47,8 @@ npx skills add asterd/browser-debug-agent-skill -g --agent kiro-cli --yes
 npx skills add asterd/browser-debug-agent-skill --agent kiro-cli --yes
 ```
 
+> **Important for Kiro users:** You must pass `--agent kiro-cli` explicitly. Running `npx skills add ... --yes` without it installs only to `.agents/skills/` (the universal path), which Kiro does not read. Kiro discovers skills exclusively from `.kiro/skills/` (workspace) and `~/.kiro/skills/` (global).
+
 From a local checkout:
 
 ```bash

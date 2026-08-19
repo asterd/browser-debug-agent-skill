@@ -451,4 +451,21 @@ done
 
 provision_optional_runtimes
 
+# Warn if a stale universal-path copy exists that Kiro cannot discover.
+for agent in $requested_agents; do
+  if [ "$agent" = kiro ] && [ "$scope" = project ]; then
+    stale_universal="$(pwd)/.agents/skills/$skill_name"
+    if [ -d "$stale_universal" ]; then
+      printf 'warning: %s exists but Kiro reads only .kiro/skills/.\n' "$stale_universal" >&2
+      printf '         The universal copy is unused by Kiro and can be removed.\n' >&2
+    fi
+  elif [ "$agent" = kiro ] && [ "$scope" = global ]; then
+    stale_universal="$HOME/.config/agents/skills/$skill_name"
+    if [ -d "$stale_universal" ]; then
+      printf 'warning: %s exists but Kiro reads only ~/.kiro/skills/ (or $KIRO_HOME/skills/).\n' "$stale_universal" >&2
+      printf '         The universal copy is unused by Kiro and can be removed.\n' >&2
+    fi
+  fi
+done
+
 printf 'Restart the selected agent host(s), then ask for a browser UI debug or verification task.\n'
