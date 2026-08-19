@@ -1,0 +1,23 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  skill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Validate shell syntax
+        run: for file in scripts/*.sh tests/*.sh; do sh -n "$file"; done
+      - name: Test backend detection
+        run: ./tests/detector-smoke.sh
+      - name: Test install and upgrade
+        run: ./tests/install-smoke.sh
+      - name: Validate detector JSON
+        run: ./scripts/detect-browser-backend.sh | jq -e '.schema_version == 1 and (.tools | type == "object")' >/dev/null
