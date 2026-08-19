@@ -451,21 +451,68 @@ done
 
 provision_optional_runtimes
 
-# Warn if a stale universal-path copy exists that Kiro cannot discover.
+# Fix universal-path copies that Kiro cannot discover.
+# This covers the case where `npx skills add ... --yes` installed to .agents/skills/
+# but Kiro only reads .kiro/skills/.
+fix_kiro_universal() {
+  scope_check=$1
+  if [ "$scope_check" = project ]; then
+    stale="$(pwd)/.agents/skills/$skill_name"
+    kiro_target="$(pwd)/.kiro/skills/$skill_name"
+  else
+    stale="$HOME/.config/agents/skills/$skill_name"
+    kiro_target="${KIRO_HOME:-$HOME/.kiro}/skills/$skill_name"
+  fi
+  [ -d "$stale" ] || return 0
+  [ ! -d "$kiro_target" ] || return 0
+  if [ -n "$prompt_input" ] && [ "$assume_yes" = false ]; then
+    printf 'notice: %s exists but Kiro reads only .kiro/skills/.\n' "$stale" >&2
+    if prompt_yes_no '  Copy it to the Kiro path now?'; then
+      mkdir -p "$(dirname "$kiro_target")"
+      cp -R "$stale" "$kiro_target"
+      printf 'Copied %s -> %s\n' "$skill_name" "$kiro_target"
+    fi
+  elif [ "$assume_yes" = true ]; then
+    mkdir -p "$(dirname "$kiro_target")"
+    cp -R "$stale" "$kiro_target"
+    printf 'Copied %s -> %s (Kiro fix)\n' "$skill_name" "$kiro_target"
+  else
+    printf 'warning: %s exists but Kiro reads only .kiro/skills/.\n' "$stale" >&2
+    printf '         Run: cp -R "%s" "%s"\n' "$stale" "$kiro_target" >&2
+  fi
+}
+
 for agent in $requested_agents; do
   if [ "$agent" = kiro ] && [ "$scope" = project ]; then
-    stale_universal="$(pwd)/.agents/skills/$skill_name"
-    if [ -d "$stale_universal" ]; then
-      printf 'warning: %s exists but Kiro reads only .kiro/skills/.\n' "$stale_universal" >&2
-      printf '         The universal copy is unused by Kiro and can be removed.\n' >&2
-    fi
+    fix_kiro_universal project
   elif [ "$agent" = kiro ] && [ "$scope" = global ]; then
-    stale_universal="$HOME/.config/agents/skills/$skill_name"
-    if [ -d "$stale_universal" ]; then
-      printf 'warning: %s exists but Kiro reads only ~/.kiro/skills/ (or $KIRO_HOME/skills/).\n' "$stale_universal" >&2
-      printf '         The universal copy is unused by Kiro and can be removed.\n' >&2
-    fi
+    fix_kiro_universal global
   fi
 done
+
+# Also check if Kiro is used in this project but not in the requested agents,
+# and a universal copy exists without a Kiro copy — offer to fix.
+# Kiro is considered active in the project only if .kiro/ already exists in the workspace.
+if [ "$scope" = project ] && [ -d "$(pwd)/.agents/skills/$skill_name" ] && [ ! -d "$(pwd)/.kiro/skills/$skill_name" ]; then
+  case " $requested_agents " in *" kiro "*) ;; *)
+    if [ -d "$(pwd)/.kiro" ]; then
+      if [ "$assume_yes" = true ]; then
+        mkdir -p "$(pwd)/.kiro/skills"
+        cp -R "$(pwd)/.agents/skills/$skill_name" "$(pwd)/.kiro/skills/$skill_name"
+        printf 'Copied %s -> .kiro/skills/%s (Kiro project detected)\n' "$skill_name" "$skill_name"
+      elif [ -n "$prompt_input" ]; then
+        printf 'notice: Kiro project detected (.kiro/ exists) but skill is only in .agents/skills/.\n' >&2
+        if prompt_yes_no '  Also install to .kiro/skills/ for Kiro?'; then
+          mkdir -p "$(pwd)/.kiro/skills"
+          cp -R "$(pwd)/.agents/skills/$skill_name" "$(pwd)/.kiro/skills/$skill_name"
+          printf 'Installed %s -> %s\n' "$skill_name" "$(pwd)/.kiro/skills/$skill_name"
+        fi
+      else
+        printf 'warning: .kiro/ exists but skill is only in .agents/skills/ (Kiro ignores that path).\n' >&2
+        printf '         Run: cp -R .agents/skills/%s .kiro/skills/%s\n' "$skill_name" "$skill_name" >&2
+      fi
+    fi
+  ;; esac
+fi
 
 printf 'Restart the selected agent host(s), then ask for a browser UI debug or verification task.\n'
