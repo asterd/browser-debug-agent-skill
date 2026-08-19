@@ -87,6 +87,14 @@ obscura fetch --help
 obscura serve --help
 ```
 
+Obscura blocks loopback, RFC1918, and link-local URLs by default as an SSRF defense. When testing a server the agent owns or the user explicitly identified as local, opt in for that command only:
+
+```bash
+obscura --allow-private-network fetch http://127.0.0.1:8080/
+```
+
+Do not set a blanket environment override or use this flag for an untrusted URL. The capability applies to private-network destinations, not merely the hostname `localhost`.
+
 Web-platform compatibility is the boundary: if a failure could be renderer-specific, reproduce once in Chromium before changing application code. Do not use Obscura as final visual truth for a Chrome-specific defect.
 
 ## Chrome / Chromium CDP

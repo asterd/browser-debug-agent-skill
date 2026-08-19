@@ -140,6 +140,8 @@ The JSON result distinguishes:
 
 Detection is only a capability probe. The skill still checks installed help and chooses by task fit. A browser runtime is not installed automatically.
 
+Obscura blocks private-network URLs such as `localhost` by default. For a local development server you own, use `obscura --allow-private-network fetch http://127.0.0.1:8080/`; do not enable that exception for untrusted destinations.
+
 ## How the bundle is structured
 
 ```text

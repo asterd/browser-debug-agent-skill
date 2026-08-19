@@ -28,7 +28,7 @@ Choose by task fit, then cost:
 
 1. Use the repository's existing Playwright, Puppeteer, or browser test setup for an existing suite, fixture, trace, or cross-browser requirement.
 2. Use an installed agent-oriented CLI (`agent-browser`, `playwright-cli`, or `chrome-devtools`) for compact snapshot/ref interaction and debugging.
-3. Use Obscura as the cheap fast path for supported fetch, evaluation, extraction, screenshot, or CDP work; confirm renderer-sensitive results in Chromium.
+3. Use Obscura as the cheap fast path for supported fetch, evaluation, extraction, screenshot, or CDP work; confirm renderer-sensitive results in Chromium. For a known local development URL, pass Obscura's per-process `--allow-private-network` flag; never enable private-network access broadly for an untrusted target.
 4. Use isolated Chrome/Chromium CDP when Chrome rendering, DevTools diagnostics, extensions, or compatibility is the subject.
 
 Do not replace an established test framework to debug one issue. Switch runtime only after evidence of a capability or renderer mismatch.
