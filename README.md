@@ -1,6 +1,10 @@
 # Browser Debug Agent
 
-An Agent Skill that turns browser-facing development into an evidence-led repair loop:
+[![Validate](https://github.com/asterd/browser-debug-agent-skill/actions/workflows/validate.yml/badge.svg)](https://github.com/asterd/browser-debug-agent-skill/actions/workflows/validate.yml)
+
+An open Agent Skill for browser debugging, browser automation, UI testing, and browser-visible regression verification. It is compatible with Codex, Claude Code, Kiro, Cursor, Gemini CLI, GitHub Copilot, OpenCode, and other hosts that support the Agent Skills format.
+
+It turns browser-facing development into an evidence-led repair loop:
 
 ```text
 reproduce -> observe -> diagnose -> patch -> relaunch -> verify
@@ -15,6 +19,14 @@ Browser CLIs are increasingly good at navigation and interaction. The missing la
 The skill provides that lifecycle while keeping observations token-efficient: accessibility/DOM snapshots, element refs, console and network evidence before screenshots or traces.
 
 When explicitly requested, it can also run the same scenario in a visible, isolated Playwright or Chrome session: fill safe test data, exercise controls and popups, resize viewports, inspect code against the observed behavior, and verify the result with structured evidence. Headless execution remains the default.
+
+## What this is — and is not
+
+- An **Agent Skill**: reusable browser-debugging guidance for Claude Code, Codex, Kiro, and other compatible coding agents.
+- A companion to **Playwright**, **Chrome DevTools/CDP**, **Obscura**, and agent-oriented browser CLIs: it selects and orchestrates installed tooling rather than replacing it.
+- **Not an MCP server**: it does not expose MCP tools itself. It can use installed DevTools or browser MCP/CLI tooling when that is the best available runtime.
+
+Use it for terms and tasks such as browser debugging, UI bug fixing, frontend testing, browser automation, Playwright testing, Chrome DevTools diagnostics, console/network errors, responsive testing, visual regression verification, and agentic browser testing.
 
 ## Install
 
