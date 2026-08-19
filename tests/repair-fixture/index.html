@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Browser Debug Agent Repair Fixture</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 42rem; }
+      button { font: inherit; padding: .5rem .75rem; }
+      #status { color: #8a4200; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Repair-loop fixture</h1>
+      <p id="status" role="status">Ready</p>
+      <button id="save" type="button">Save changes</button>
+    </main>
+    <script>
+      const button = document.querySelector('#save');
+      const status = document.querySelector('#status');
+      const errors = [];
+      let saved = false;
+
+      button.addEventListener('click', () => {
+        saved = true;
+        status.textContent = 'Saving…';
+
+        status.textContent = 'Saved';
+      });
+
+      window.__BDA_REPAIR__ = () => ({
+        expectedStatus: 'Saved',
+        saved,
+        status: status.textContent,
+        errors: [...errors]
+      });
+    </script>
+  </body>
+</html>

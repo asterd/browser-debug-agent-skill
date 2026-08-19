@@ -118,6 +118,15 @@ Read `references/token-economy.md` when output is large or the task spans severa
 - Avoid production mutations, purchases, irreversible submissions, and messages unless explicitly required and authorized.
 - Store temporary artifacts in an ignored repo-local directory such as `.browser-debug/` or system temp. Preserve high-value failure evidence; clean disposable success artifacts.
 
+## Optional presentation escalation
+
+Open a headed Chrome/Chromium window only when the user explicitly asks to see, watch, or present the browser output. Keep ordinary diagnostic work headless or CLI-first.
+
+- Launch a separate temporary profile with a loopback-only, dynamically selected CDP port; never expose or attach the user's normal profile by default.
+- Navigate only to the agreed target and state what is being shown. Open DevTools only when the user asks to inspect diagnostics, not merely to see the page.
+- Record the owned process, profile directory, port, and URL; keep the window open only for the requested review and close owned resources afterward.
+- Treat a request to present output as authorization to open the isolated window, not as authorization for production mutations or sensitive-data access.
+
 ## Definition of done
 
 Exit as:
