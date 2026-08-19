@@ -10,7 +10,7 @@ It turns browser-facing development into an evidence-led repair loop:
 reproduce -> observe -> diagnose -> patch -> relaunch -> verify
 ```
 
-It is a debugging and verification policy, not another browser automation engine. It uses the project's existing tooling first, then selects an installed agent-oriented CLI, Obscura, or isolated Chrome/Chromium CDP.
+It is a debugging and verification policy, not another browser automation engine. It uses the project's existing Playwright/Puppeteer as the default full-featured runtime, Obscura for quick localhost probes, and isolated Chrome/Chromium CDP when needed.
 
 ## Why this skill
 
@@ -20,13 +20,15 @@ The skill provides that lifecycle while keeping observations token-efficient: ac
 
 When explicitly requested, it can also run the same scenario in a visible, isolated Playwright or Chrome session: fill safe test data, exercise controls and popups, resize viewports, inspect code against the observed behavior, and verify the result with structured evidence. Headless execution remains the default.
 
+When the target requires authentication, the skill detects login redirects or 401/403 responses, asks for explicit user approval, and escalates to the user's real browser profile — read-only by default, with each mutation requiring separate authorization.
+
 ## What this is — and is not
 
 - An **Agent Skill**: reusable browser-debugging guidance for Claude Code, Codex, Kiro, and other compatible coding agents.
 - A companion to **Playwright**, **Chrome DevTools/CDP**, **Obscura**, and agent-oriented browser CLIs: it selects and orchestrates installed tooling rather than replacing it.
 - **Not an MCP server**: it does not expose MCP tools itself. It can use installed DevTools or browser MCP/CLI tooling when that is the best available runtime.
 
-Use it for terms and tasks such as browser debugging, UI bug fixing, frontend testing, browser automation, Playwright testing, Chrome DevTools diagnostics, console/network errors, responsive testing, visual regression verification, and agentic browser testing.
+Use it for terms and tasks such as browser debugging, UI bug fixing, frontend testing, browser automation, Playwright testing, Chrome DevTools diagnostics, console/network errors, responsive testing, visual regression verification, authenticated web app testing, and agentic browser testing.
 
 ## Install
 
@@ -127,7 +129,11 @@ For a reproducible install, pin both the script URL and `BDA_REF` to the same re
 ## Runtime discovery
 
 ```bash
+# Full discovery (install-time, probes /Applications/ paths)
 ./scripts/detect-browser-backend.sh
+
+# Quick discovery (runtime, PATH-only, no filesystem probing)
+./scripts/detect-browser-backend.sh --quick
 ```
 
 The JSON result distinguishes:
@@ -140,23 +146,35 @@ The JSON result distinguishes:
 - Obscura;
 - Chrome/Chromium CDP fallback.
 
-Detection is only a capability probe. The skill still checks installed help and chooses by task fit. A browser runtime is not installed automatically.
+Detection is only a capability probe — the full script is for install-time use. During a task, the skill uses lightweight `command -v` checks instead. A browser runtime is not installed automatically.
 
-Obscura blocks private-network URLs such as `localhost` by default. For a local development server you own, use `obscura --allow-private-network fetch http://127.0.0.1:8080/`; do not enable that exception for untrusted destinations.
+### Runtime hierarchy
+
+| Priority | Runtime | Best for |
+|---|---|---|
+| 1 | Project Playwright/Puppeteer | Full interaction, HTTPS, status codes, viewport, accessibility |
+| 2 | Obscura | Quick localhost HTTP probes (fetch, eval, screenshot) |
+| 3 | Agent CLI | Snapshot/ref interaction when installed |
+| 4 | Chrome/Chromium CDP | Chrome-specific work or fallback |
+
+Obscura blocks private-network URLs such as `localhost` by default. For a local development server you own, use `obscura --allow-private-network fetch http://127.0.0.1:8080/`; do not enable that exception for untrusted destinations. Note: Obscura may not support HTTPS remote sites depending on the build — the skill falls back to Playwright or Chrome automatically.
 
 ## How the bundle is structured
 
 ```text
-SKILL.md                         compact operating contract and closed loop
-references/browser-drivers.md   runtime choice and capability boundaries
-references/debug-loop.md        failure escalation and regression radius
-references/visual-qa.md         geometry and visual verification
-references/token-economy.md     output minimization
-scripts/detect-browser-backend.sh
-scripts/install.sh
+SKILL.md                              compact operating contract (92 lines)
+references/browser-drivers.md        runtime choice, limitations, and effective patterns
+references/debug-loop.md             failure escalation and regression radius
+references/visual-qa.md              geometry and visual verification
+references/token-economy.md          output minimization
+references/session-recording.md      GIF/video recording protocol
+scripts/detect-browser-backend.sh    install-time discovery (supports --quick for PATH-only)
+scripts/install.sh                   multi-host installer and updater
 tests/install-smoke.sh
 tests/detector-smoke.sh
-tests/fixture-app/index.html      self-contained browser smoke fixture
+tests/fixture-app/index.html         self-contained browser smoke fixture
+tests/repair-fixture/index.html      debug-loop repair demonstration
+tests/chrome-devtools-demo/index.html  CDP interaction demo
 .github/workflows/validate.yml
 ```
 

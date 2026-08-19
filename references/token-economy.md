@@ -1,18 +1,17 @@
 # Token economy
 
-## Information hierarchy
+## Evidence output cost
 
-Prefer evidence with high diagnostic value per token:
+The evidence priority in `SKILL.md` step 3 defines what to collect first. This reference addresses how to keep that evidence cheap in token terms once collected.
 
-1. exit code + concise error;
-2. targeted grep result;
-3. structured DOM/JS evaluation;
-4. filtered console/network entries;
-5. focused source range;
-6. git diff;
-7. screenshot;
-8. trace;
-9. full logs/full source only as last resort.
+Cost gradient (cheapest to most expensive output):
+
+- exit code or single-line status;
+- targeted grep or evaluation result;
+- filtered console/network lines;
+- focused source range or diff stat;
+- element screenshot or cropped artifact;
+- full trace, full page screenshot, or unfiltered logs.
 
 ## Shell patterns
 

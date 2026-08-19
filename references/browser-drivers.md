@@ -1,21 +1,28 @@
 # Browser runtime strategies
 
-Read this reference before issuing the first browser command in a task. The invariant is one conceptual loop regardless of runtime:
+This reference covers **when and why** to choose each runtime. For **exact commands and syntax**, see `references/runtime-commands.md`.
+
+The invariant is one conceptual loop regardless of runtime:
 
 ```text
-doctor -> launch/attach -> open -> snapshot -> interact -> re-snapshot
-       -> console/network/eval -> screenshot/trace when needed -> stop
+launch/attach -> open -> snapshot -> interact -> re-snapshot
+             -> console/network/eval -> screenshot when needed -> stop
 ```
+
+## Companion skills
+
+If installed alongside this skill, these provide full runtime documentation:
+
+| Runtime | Companion | Benefit |
+|---|---|---|
+| playwright-cli | `microsoft/playwright-cli` | Complete CLI reference, snapshot semantics, session management |
+| Playwright tests | `currents-dev/playwright-best-practices-skill` | Test authoring patterns and CI integration |
+
+When a companion skill is present, the agent should use it for runtime-specific decisions. This skill remains the debugging lifecycle owner.
 
 ## Capability probe
 
-Run:
-
-```bash
-sh scripts/detect-browser-backend.sh
-```
-
-The output is discovery, not proof of compatibility. Run the selected command's `--version` and relevant `--help` before use because these CLIs evolve independently.
+Use lightweight `command -v` checks during tasks. The full `scripts/detect-browser-backend.sh` is for install-time discovery only (use `--quick` to skip filesystem probes).
 
 ## Prefer existing project tooling
 
@@ -76,7 +83,7 @@ Do not assume every MCP tool is exposed by the CLI.
 
 ## Obscura
 
-Obscura is a lightweight native engine with JavaScript, rendering, screenshots, and a CDP server. It is a strong fast path for supported fetch/evaluate/extract work and can serve a CDP endpoint for richer clients.
+Obscura is a lightweight native engine with JavaScript, rendering, screenshots, and a CDP server. It is a strong fast path for local HTTP fetch/evaluate/extract work.
 
 Probe installed syntax:
 
@@ -84,8 +91,16 @@ Probe installed syntax:
 obscura --version
 obscura --help
 obscura fetch --help
-obscura serve --help
 ```
+
+### Known limitations
+
+- **HTTPS remote sites may fail** depending on the build (TLS/ALPN compatibility). If `obscura fetch https://...` returns a network error, switch to Playwright or Chrome immediately — do not retry.
+- **Selector mode** (`--selector`) returns full page HTML in some versions. Use `--eval` with a JS expression for targeted extraction.
+- **Interaction** is via `--eval` only (no native click/type commands). Use IIFE pattern: `--eval "(function(){ document.querySelector('#btn').click(); return JSON.stringify(result); })()"`.
+- **HTTP status** is not returned as metadata. Infer from page title/content or use `--eval` to check `document.title`.
+
+### Localhost access
 
 Obscura blocks loopback, RFC1918, and link-local URLs by default as an SSRF defense. When testing a server the agent owns or the user explicitly identified as local, opt in for that command only:
 
@@ -93,7 +108,21 @@ Obscura blocks loopback, RFC1918, and link-local URLs by default as an SSRF defe
 obscura --allow-private-network fetch http://127.0.0.1:8080/
 ```
 
-Do not set a blanket environment override or use this flag for an untrusted URL. The capability applies to private-network destinations, not merely the hostname `localhost`.
+Do not set a blanket environment override or use this flag for an untrusted URL.
+
+### Effective patterns
+
+```bash
+# DOM fetch + screenshot
+obscura --allow-private-network fetch http://127.0.0.1:3000/ -s screenshot.png
+
+# JS evaluation (click + read state)
+obscura --allow-private-network fetch http://127.0.0.1:3000/ \
+  --eval "(function(){ document.querySelector('#save').click(); return JSON.stringify({status: document.querySelector('#status').textContent}); })()"
+
+# Text-only output (minimal tokens)
+obscura --allow-private-network fetch http://127.0.0.1:3000/ --dump text
+```
 
 Web-platform compatibility is the boundary: if a failure could be renderer-specific, reproduce once in Chromium before changing application code. Do not use Obscura as final visual truth for a Chrome-specific defect.
 

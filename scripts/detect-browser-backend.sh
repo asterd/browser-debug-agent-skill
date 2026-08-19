@@ -1,6 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
+quick=false
+case "${1:-}" in --quick|-q) quick=true ;; esac
+
 has() { command -v "$1" >/dev/null 2>&1; }
 
 json_escape() {
@@ -52,7 +55,7 @@ chrome_cmd=""
 for candidate in google-chrome google-chrome-stable chromium chromium-browser chrome; do
   if has "$candidate"; then chrome_cmd=$(command -v "$candidate"); break; fi
 done
-if [ -z "$chrome_cmd" ]; then
+if [ -z "$chrome_cmd" ] && [ "$quick" = false ]; then
   for candidate in \
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
     "/Applications/Chromium.app/Contents/MacOS/Chromium" \
