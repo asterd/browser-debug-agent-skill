@@ -121,6 +121,7 @@ scripts/detect-browser-backend.sh
 scripts/install.sh
 tests/install-smoke.sh
 tests/detector-smoke.sh
+tests/fixture-app/index.html      self-contained browser smoke fixture
 .github/workflows/validate.yml
 ```
 

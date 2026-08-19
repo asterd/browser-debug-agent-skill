@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Browser Debug Agent Smoke Fixture</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 42rem; }
+      button, input { font: inherit; padding: .5rem .75rem; }
+      #status { color: #126b37; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser Debug Agent Smoke Fixture</h1>
+      <p id="status" role="status">Ready</p>
+      <label>Label <input id="label" value="smoke"></label>
+      <button id="increment" type="button">Increment</button>
+      <output id="count">0</output>
+    </main>
+    <script>
+      const button = document.querySelector('#increment');
+      const count = document.querySelector('#count');
+      const status = document.querySelector('#status');
+      let value = 0;
+
+      button.addEventListener('click', () => {
+        value += 1;
+        count.textContent = String(value);
+        status.textContent = `Count is ${value}`;
+      });
+
+      window.__BDA_SMOKE__ = () => ({
+        title: document.title,
+        count: Number(count.textContent),
+        label: document.querySelector('#label').value,
+        status: status.textContent
+      });
+    </script>
+  </body>
+</html>
