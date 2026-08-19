@@ -3,8 +3,10 @@ set -eu
 
 skill_name=browser-debug-agent
 scope=global
+scope_explicit=false
 mode=copy
 assume_yes=false
+interactive_requested=false
 force=false
 list_only=false
 remote_update=false
@@ -20,6 +22,7 @@ Usage: scripts/install.sh [options]
   --agent ID       codex, claude-code, cursor, gemini-cli, kiro,
                    github-copilot, opencode, or universal (repeatable)
   --scope SCOPE    global (default) or project
+  --interactive     prompt for install scope and host selection
   --mode MODE      copy (default) or link; link requires a local checkout
   --source PATH    local bundle root containing SKILL.md
   --list           show supported hosts, detection, and target paths
@@ -44,11 +47,12 @@ append_agent() {
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --agent) [ "$#" -ge 2 ] || die "--agent requires a value"; append_agent "$2"; shift 2 ;;
-    --scope) [ "$#" -ge 2 ] || die "--scope requires a value"; scope=$2; shift 2 ;;
+    --scope) [ "$#" -ge 2 ] || die "--scope requires a value"; scope=$2; scope_explicit=true; shift 2 ;;
     --mode) [ "$#" -ge 2 ] || die "--mode requires a value"; mode=$2; shift 2 ;;
     --source) [ "$#" -ge 2 ] || die "--source requires a value"; source_dir=$2; shift 2 ;;
     --list) list_only=true; shift ;;
     --yes|-y) assume_yes=true; shift ;;
+    --interactive) interactive_requested=true; shift ;;
     --update) remote_update=true; shift ;;
     --force) force=true; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -60,6 +64,34 @@ case "$scope" in global|project) ;; *) die "scope must be global or project" ;; 
 case "$mode" in copy|link) ;; *) die "mode must be copy or link" ;; esac
 [ "$remote_update" = false ] || [ -z "$source_dir" ] || die "--update and --source cannot be combined"
 [ "$remote_update" = false ] || [ "$mode" = copy ] || die "--update requires --mode copy"
+
+prompt_input=""
+if [ -t 0 ]; then
+  prompt_input=/dev/stdin
+elif ( : </dev/tty ) 2>/dev/null; then
+  prompt_input=/dev/tty
+elif [ "$interactive_requested" = true ]; then
+  prompt_input=/dev/stdin
+fi
+
+prompt_read() {
+  prompt=$1
+  printf '%s' "$prompt" >&2
+  IFS= read -r reply < "$prompt_input"
+  printf '%s' "$reply"
+}
+
+if [ "$scope_explicit" = false ] && [ "$assume_yes" = false ] && [ -n "$prompt_input" ]; then
+  printf '%s\n' 'Install scope:' >&2
+  printf '%s\n' '  1) global  — available to the selected agent everywhere' >&2
+  printf '%s\n' '  2) project — install only in the current project' >&2
+  scope_selection=$(prompt_read 'Choose scope [1]: ')
+  case "${scope_selection:-1}" in
+    1) scope=global ;;
+    2) scope=project ;;
+    *) die "invalid scope selection: $scope_selection" ;;
+  esac
+fi
 
 agent_command() {
   case "$1" in
@@ -133,16 +165,15 @@ fi
 if [ -z "$requested_agents" ]; then
   if [ "$assume_yes" = true ]; then
     requested_agents=$detected_agents
-  elif [ -t 0 ]; then
-    printf 'Detected agent hosts:\n'
+  elif [ -n "$prompt_input" ]; then
+    printf '%s\n' "Agent hosts for $scope scope:" >&2
     index=1
     for agent in $all_agents; do
       marker=""; is_detected "$agent" && marker=" (detected)"
-      printf '  %s) %s%s\n' "$index" "$agent" "$marker"
+      printf '  %s) %s%s\n' "$index" "$agent" "$marker" >&2
       index=$((index + 1))
     done
-    printf 'Choose comma-separated numbers [detected: %s]: ' "${detected_agents:-none}"
-    IFS= read -r selection
+    selection=$(prompt_read "Choose comma-separated numbers [detected: ${detected_agents:-none}]: ")
     if [ -z "$selection" ]; then
       requested_agents=$detected_agents
     else

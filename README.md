@@ -42,6 +42,9 @@ npx skills add asterd/browser-debug-agent-skill -g \
 
 # Kiro CLI, global
 npx skills add asterd/browser-debug-agent-skill -g --agent kiro-cli --yes
+
+# Kiro CLI, current project only: installs to .kiro/skills/
+npx skills add asterd/browser-debug-agent-skill --agent kiro-cli --yes
 ```
 
 From a local checkout:
@@ -50,8 +53,11 @@ From a local checkout:
 # Inspect supported and detected hosts
 ./scripts/install.sh --list
 
-# Interactive install to detected hosts
+# Interactive install: choose global/project scope, then agent hosts
 ./scripts/install.sh
+
+# Same interactive chooser when stdin is redirected (for example curl | sh)
+./scripts/install.sh --interactive
 
 # Project-scoped install for selected hosts
 ./scripts/install.sh --scope project \
@@ -59,6 +65,8 @@ From a local checkout:
 ```
 
 The local installer supports `codex`, `claude-code`, `cursor`, `gemini-cli`, `kiro`, `github-copilot`, `opencode`, and the shared `universal` location. Kiro installs to `~/.kiro/skills/` globally (or `$KIRO_HOME/skills/`) and `.kiro/skills/` for a workspace. The local installer calls this host `kiro`; the Agent Skills CLI calls it `kiro-cli`.
+
+For a local Kiro-only installation with this bundle, run `./scripts/install.sh --scope project --agent kiro --yes`. Its target is exactly `.kiro/skills/browser-debug-agent/`.
 
 It is also the updater. Re-run the same command after updating the checkout:
 

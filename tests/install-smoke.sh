@@ -50,6 +50,29 @@ grep -q 'upgrade-smoke-marker' "$project_target/SKILL.md"
 set -- "$test_root/project/.browser-debug/installer-backups/codex"/*
 [ -e "$1/SKILL.md" ]
 
+# The interactive chooser can select a project-local install even with piped input.
+interactive_project=$test_root/interactive-project
+mkdir -p "$interactive_project"
+(
+  cd "$interactive_project"
+  printf '2\n1\n' | HOME="$test_root/home" "$repo_root/scripts/install.sh" \
+    --source "$repo_root" --interactive
+)
+interactive_target=$interactive_project/.agents/skills/browser-debug-agent
+[ -f "$interactive_target/SKILL.md" ]
+
+# Selecting Kiro in the same project-local chooser uses Kiro's native path.
+interactive_kiro_project=$test_root/interactive-kiro-project
+mkdir -p "$interactive_kiro_project"
+(
+  cd "$interactive_kiro_project"
+  printf '2\n5\n' | HOME="$test_root/home" KIRO_HOME="$test_root/kiro-home" \
+    "$repo_root/scripts/install.sh" --source "$repo_root" --interactive
+)
+interactive_kiro_target=$interactive_kiro_project/.kiro/skills/browser-debug-agent
+[ -f "$interactive_kiro_target/SKILL.md" ]
+[ ! -e "$interactive_kiro_project/.agents/skills/browser-debug-agent" ]
+
 # Kiro uses native global and workspace skill directories, including KIRO_HOME.
 kiro_home=$test_root/kiro-home
 HOME="$test_root/home" KIRO_HOME="$kiro_home" "$repo_root/scripts/install.sh" \
