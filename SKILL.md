@@ -22,14 +22,14 @@ Drive browser-facing work to one of three exits: **VERIFIED**, **PARTIALLY VERIF
 
 ## Runtime
 
-Probe with lightweight `command -v` checks — not the full detector script. Choose by task fit:
+Probe with lightweight `command -v` checks — not the full detector script. Use the first available in order of preference:
 
-1. Existing project Playwright/Puppeteer setup — default for any task needing full interaction, HTTPS, status codes, viewport control, accessibility, or multi-step flows.
-2. Obscura — fast probe for localhost HTTP only: quick fetch, JS eval, screenshot. If it errors or the target is HTTPS, switch immediately. Not suitable for interaction-heavy or multi-step work.
-3. Agent-oriented CLI (`agent-browser`, `playwright-cli`, `chrome-devtools`) — for snapshot/ref interaction when installed.
-4. Isolated Chrome/Chromium CDP — for Chrome-specific rendering, DevTools, extensions, or as fallback when Playwright is unavailable.
+1. Existing project Playwright/Puppeteer — if already installed in node_modules.
+2. `playwright-cli` or `agent-browser` — if globally installed.
+3. Obscura — for quick localhost HTTP probes (fetch, eval, screenshot). Not for HTTPS or multi-step.
+4. Chrome/Chromium — always available on most systems; use with CDP for full interaction, headed mode, HTTPS, viewport, DevTools.
 
-If a runtime fails on a URL or protocol, do not retry — switch to the next capable runtime. Read `references/runtime-commands.md` for exact commands — do not probe `--help` unless the command is missing from that reference. Read `references/browser-drivers.md` for capability boundaries and session isolation.
+Do NOT install a runtime that isn't already present. Use what exists. Chrome alone is sufficient for any browser task including headed mode, viewport control, interaction, and HTTPS. Read `references/runtime-commands.md` for exact commands. Read `references/browser-drivers.md` for capability boundaries.
 
 ## Loop
 
