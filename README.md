@@ -144,6 +144,84 @@ curl --proto '=https' --tlsv1.2 -fsSL \
 
 For a reproducible install, pin both the script URL and `BDA_REF` to the same reviewed commit SHA instead of `main`.
 
+## Recommended MCP servers
+
+For the best experience, install a browser MCP server alongside this skill. The skill uses MCP tools directly when available — no scripts needed.
+
+### Playwright MCP (Microsoft) — recommended
+
+Full browser automation with accessibility snapshots, element refs, click, type, screenshot, network, console.
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
+```
+
+- **GitHub**: [microsoft/playwright-mcp](https://github.com/microsoft/playwright-mcp)
+- **Supports**: Chromium, Firefox, WebKit, headed + headless, viewport emulation, mobile
+- **Best for**: Full interaction, accessibility snapshots, multi-browser, test generation
+
+### Chrome DevTools MCP (Google) — if you already have Chrome
+
+Direct Chrome DevTools Protocol access: console, network, performance, screenshots, automation.
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    }
+  }
+}
+```
+
+- **GitHub**: [ChromeDevTools/chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp)
+- **Supports**: Chrome/Chromium only, DevTools diagnostics, performance traces, Lighthouse
+- **Best for**: Chrome-specific debugging, performance analysis, existing Chrome on the system
+
+### Which one to choose?
+
+| Situation | Use |
+|---|---|
+| Chrome is already installed, no extra setup wanted | Chrome DevTools MCP |
+| Need multi-browser, accessibility snapshots, mobile emulation | Playwright MCP |
+| Both installed | The skill prefers Playwright MCP for interaction, Chrome DevTools for performance/diagnostics |
+
+### Kiro configuration
+
+Place in `.kiro/settings/mcp.json` (workspace) or `~/.kiro/settings/mcp.json` (global):
+
+```json
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
+```
+
+Or for Chrome DevTools:
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"]
+    }
+  }
+}
+```
+
 ## Runtime discovery
 
 ```bash

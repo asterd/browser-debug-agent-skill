@@ -22,14 +22,28 @@ Drive browser-facing work to one of three exits: **VERIFIED**, **PARTIALLY VERIF
 
 ## Runtime
 
-Probe with lightweight `command -v` checks — not the full detector script. Use the first available in order of preference:
+### If browser MCP tools are available — use them directly
 
-1. Existing project Playwright/Puppeteer — if already installed in node_modules.
-2. `playwright-cli` or `agent-browser` — if globally installed.
-3. Obscura — for quick localhost HTTP probes (fetch, eval, screenshot). Not for HTTPS or multi-step.
-4. Chrome/Chromium — always available on most systems; use with CDP for full interaction, headed mode, HTTPS, viewport, DevTools.
+When the session has MCP browser tools (navigate, click, type, screenshot, console, network, evaluate), use them as your primary execution layer. Do not write scripts. Call the tools directly following the Loop below.
 
-Do NOT install a runtime that isn't already present. Use what exists. Chrome alone is sufficient for any browser task including headed mode, viewport control, interaction, and HTTPS. Read `references/runtime-commands.md` for exact commands. Read `references/browser-drivers.md` for capability boundaries.
+Typical MCP tool flow:
+1. `navigate` / `goto` → open the target URL
+2. `snapshot` / `read_page` → get accessibility tree or DOM
+3. `click` / `fill` / `type` → interact with elements
+4. `console` / `network` → check for errors
+5. `screenshot` → capture visual evidence when needed
+6. `resize` / `setViewport` → test responsive behavior
+
+### If no MCP tools — use installed runtimes via shell
+
+Probe with `command -v` checks. Use the first available:
+
+1. Project Playwright/Puppeteer — if already in node_modules.
+2. `playwright-cli` — if globally installed.
+3. Obscura — quick localhost HTTP probes only (fetch, eval, screenshot). Not for HTTPS or multi-step.
+4. Chrome/Chromium CDP — always available on most systems; sufficient for any task.
+
+Do NOT install a runtime that isn't present. Use what exists. Chrome alone is enough for headed mode, viewport, interaction, HTTPS. Read `references/runtime-commands.md` for exact commands.
 
 ## Loop
 
