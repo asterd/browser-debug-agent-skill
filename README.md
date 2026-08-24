@@ -32,21 +32,39 @@ Use it for terms and tasks such as browser debugging, UI bug fixing, frontend te
 
 ## Install
 
-The open [Agent Skills CLI](https://github.com/vercel-labs/skills) is the recommended installer because it already detects and supports Codex, Claude Code, Cursor, Gemini CLI, Kiro, GitHub Copilot, OpenCode, and many other hosts.
+### One-liner (recommended)
+
+```bash
+# Project install for your AI host
+npx browser-debug-agent init --ai kiro
+npx browser-debug-agent init --ai claude
+npx browser-debug-agent init --ai codex
+npx browser-debug-agent init --ai cursor
+npx browser-debug-agent init --ai all          # all detected hosts
+
+# Global install
+npx browser-debug-agent init --ai kiro --global
+npx browser-debug-agent init --ai claude --global
+
+# Update
+npx browser-debug-agent update
+
+# Uninstall
+npx browser-debug-agent uninstall
+```
+
+### Using the Agent Skills CLI
 
 ```bash
 # Global, interactive host selection
 npx skills add asterd/browser-debug-agent-skill -g
 
-# Example: Codex and Claude Code, non-interactive
+# Kiro CLI, current project only
+npx skills add asterd/browser-debug-agent-skill --agent kiro-cli --yes
+
+# Codex + Claude Code
 npx skills add asterd/browser-debug-agent-skill -g \
   --agent codex --agent claude-code --yes
-
-# Kiro CLI, global
-npx skills add asterd/browser-debug-agent-skill -g --agent kiro-cli --yes
-
-# Kiro CLI, current project only: installs to .kiro/skills/
-npx skills add asterd/browser-debug-agent-skill --agent kiro-cli --yes
 ```
 
 > **Important for Kiro users:** You must pass `--agent kiro-cli` explicitly. Running `npx skills add ... --yes` without it installs only to `.agents/skills/` (the universal path), which Kiro does not read. Kiro discovers skills exclusively from `.kiro/skills/` (workspace) and `~/.kiro/skills/` (global).

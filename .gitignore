@@ -2,5 +2,7 @@ docs/
 .browser-debug/
 .DS_Store
 node_modules/
-package.json
-package-lock.json
+/package.json
+/package-lock.json
+cli/bundle/
+cli/node_modules/

@@ -1,6 +1,6 @@
 ---
 name: browser-debug-agent
-description: Debug, repair, and verify browser-facing applications through an evidence-led execution loop. Use for any task involving frontend UI bugs, browser testing, console or network errors, layout issues, responsive checks, visual regressions, form interactions, or browser-visible verification of a code change. Prefer existing project tooling; otherwise select the cheapest compatible runtime.
+description: Debug, repair, and verify browser-facing applications through an evidence-led execution loop. Use for any task involving frontend UI bugs, browser testing, console or network errors, layout issues, responsive checks, visual regressions, form interactions, browser-visible verification of a code change, UI review, QA check, smoke test, or acceptance verification. Prefer existing project tooling; otherwise select the cheapest compatible runtime.
 metadata:
   category: browser-testing
   tags: agent-skills, browser-debugging, browser-automation, browser-testing, ui-testing, frontend, playwright, chrome-devtools, obscura, responsive, visual-regression, dom, console-errors, network-errors
@@ -53,6 +53,36 @@ Evidence priority: runtime errors > console errors > failed requests > DOM/refs 
 ### 5. Relaunch and compare — reload, repeat reproduction, compare. After 2 failures in same area, widen scope before patch 3. Read `references/debug-loop.md` when stuck or flaky.
 
 ### 6. Verify regression radius — cheapest meaningful ladder: static check → unit test → exact repro → related regression → visual states → broader suite. Read `references/visual-qa.md` for visual work.
+
+## Verification mode
+
+When the task is "verify", "check", "QA", "test the UI", or "make sure it works" (not a specific bug), build a coverage checklist before starting:
+
+| Layer | Minimum check |
+|---|---|
+| Functional | Every visible interactive control responds correctly |
+| Console | Zero uncaught errors after full interaction pass |
+| Network | All required requests return expected status |
+| Responsive | At least 3 viewports: desktop (1280), tablet (768), mobile (375) |
+| Accessibility | Roles, labels, and focus order are correct (ariaSnapshot) |
+| Visual | No overflow, no clipping, no broken layout at each viewport |
+
+Execute every layer. Do not exit VERIFIED without evidence from at least 4 of 6 layers. Report results as:
+
+```
+| Check | Viewport | Result | Evidence |
+|-------|----------|--------|----------|
+| Click Submit | 1280 | PASS | status -> "Saved" |
+| Console errors | all | PASS | 0 errors |
+| /api/save | 1280 | PASS | 200 OK |
+| Layout overflow | 375 | FAIL | scrollWidth 412 > clientWidth 375 |
+```
+
+Anti-patterns in verification mode:
+- Do not claim VERIFIED after checking only one viewport.
+- Do not claim VERIFIED without interacting with every visible control.
+- A screenshot alone is not verification — interact first, then screenshot.
+- If a control is unreachable (hidden, overlapped, off-screen), that is a failure.
 
 ## Token discipline
 

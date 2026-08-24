@@ -10,6 +10,7 @@ interactive_requested=false
 force=false
 list_only=false
 remote_update=false
+install_runtimes=false
 source_dir=""
 requested_agents=""
 
@@ -29,6 +30,7 @@ Usage: scripts/install.sh [options]
   --yes            use all detected hosts without prompting
   --update         download the selected GitHub ref before installing
   --force          replace a foreign/corrupt target after backing it up
+  --with-runtimes  also install Playwright/Puppeteer if missing (with --yes)
   --help           show this help
 
 Environment for curl/bootstrap mode:
@@ -56,6 +58,7 @@ while [ "$#" -gt 0 ]; do
     --interactive) interactive_requested=true; shift ;;
     --update) remote_update=true; shift ;;
     --force) force=true; shift ;;
+    --with-runtimes) install_runtimes=true; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -282,34 +285,96 @@ install_project_puppeteer() {
 }
 
 provision_optional_runtimes() {
-  [ -n "$prompt_input" ] || return 0
-  printf '%s\n' 'Browser runtime check:' >&2
-  if has obscura; then
-    printf '%s\n' '  Obscura: available' >&2
-  elif prompt_yes_no '  Obscura is missing. Install the native headless binary to ~/.local/bin?'; then
-    install_obscura
-  else
-    printf '%s\n' '  Obscura: skipped' >&2
+  # Check what's available
+  has_obscura=false; has obscura && has_obscura=true
+  has_playwright=false; playwright_chromium_available && has_playwright=true
+  has_puppeteer=false; [ -d node_modules/puppeteer ] && has_puppeteer=true
+  has_chrome=false
+  for c in google-chrome google-chrome-stable chromium chromium-browser chrome; do
+    has "$c" && has_chrome=true && break
+  done
+  [ "$has_chrome" = false ] && [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ] && has_chrome=true
+
+  has_any=false
+  { [ "$has_obscura" = true ] || [ "$has_playwright" = true ] || [ "$has_puppeteer" = true ] || [ "$has_chrome" = true ]; } && has_any=true
+
+  # --with-runtimes: install everything available without asking
+  if [ "$install_runtimes" = true ]; then
+    printf '%s\n' 'Browser runtime check (--with-runtimes):' >&2
+    if [ "$has_obscura" = true ]; then
+      printf '%s\n' '  Obscura: available' >&2
+    else
+      printf '%s\n' '  Obscura: installing...' >&2
+      install_obscura || printf '%s\n' '  Obscura: install failed (non-critical)' >&2
+    fi
+    if [ -f package.json ]; then
+      if [ "$has_playwright" = true ]; then
+        printf '%s\n' '  Playwright Chromium: available' >&2
+      else
+        printf '%s\n' '  Playwright: installing...' >&2
+        install_project_playwright || printf '%s\n' '  Playwright: install failed' >&2
+      fi
+    else
+      printf '%s\n' '  Playwright: skipped (no package.json)' >&2
+    fi
+    return 0
   fi
 
-  if [ -f package.json ]; then
-    if playwright_chromium_available; then
-      printf '%s\n' '  Playwright Chromium: available' >&2
-    elif prompt_yes_no '  Playwright Chromium is missing. Install @playwright/test and Chromium for this project?'; then
-      install_project_playwright
-    else
-      printf '%s\n' '  Playwright: skipped' >&2
-    fi
+  # If at least one runtime exists, just report and return
+  if [ "$has_any" = true ]; then
+    printf '%s\n' 'Browser runtime check:' >&2
+    [ "$has_obscura" = true ] && printf '%s\n' '  Obscura: available' >&2
+    [ "$has_playwright" = true ] && printf '%s\n' '  Playwright Chromium: available' >&2
+    [ "$has_puppeteer" = true ] && printf '%s\n' '  Puppeteer: available' >&2
+    [ "$has_chrome" = true ] && printf '%s\n' '  Chrome/Chromium: available' >&2
+    return 0
+  fi
 
-    if [ -d node_modules/puppeteer ]; then
-      printf '%s\n' '  Puppeteer: available' >&2
-    elif prompt_yes_no '  Puppeteer is missing. Install it with Chrome for Testing for this project?'; then
-      install_project_puppeteer
-    else
-      printf '%s\n' '  Puppeteer: skipped' >&2
-    fi
+  # Nothing found — must ask user what to install
+  printf '%s\n' '' >&2
+  printf '%s\n' 'WARNING: No browser runtime found. The skill cannot operate without one.' >&2
+  printf '%s\n' '' >&2
+  printf '%s\n' 'Available options:' >&2
+  printf '%s\n' '  1) Obscura     — lightweight headless engine (~5MB, user-local)' >&2
+  printf '%s\n' '  2) Playwright  — full-featured browser testing (requires package.json)' >&2
+  printf '%s\n' '  3) Puppeteer   — programmatic CDP library (requires package.json)' >&2
+  printf '%s\n' '  4) Skip        — install skill only, configure runtime later' >&2
+  printf '%s\n' '' >&2
+
+  if [ -n "$prompt_input" ]; then
+    selection=$(prompt_read 'Choose runtime to install [1]: ')
+    case "${selection:-1}" in
+      1)
+        install_obscura
+        ;;
+      2)
+        if [ -f package.json ]; then
+          install_project_playwright
+        else
+          printf '%s\n' '  error: Playwright requires package.json. Run npm init first.' >&2
+        fi
+        ;;
+      3)
+        if [ -f package.json ]; then
+          install_project_puppeteer
+        else
+          printf '%s\n' '  error: Puppeteer requires package.json. Run npm init first.' >&2
+        fi
+        ;;
+      4)
+        printf '%s\n' '  Skipped. Install a runtime before using the skill.' >&2
+        ;;
+      *)
+        printf '%s\n' '  Invalid choice. Skipped.' >&2
+        ;;
+    esac
+  elif [ "$assume_yes" = true ]; then
+    # Non-interactive with --yes: install Obscura (safest default, user-local)
+    printf '%s\n' '  Installing Obscura (default for non-interactive)...' >&2
+    install_obscura || printf '%s\n' '  Obscura install failed. Install a runtime manually.' >&2
   else
-    printf '%s\n' '  Playwright/Puppeteer: skipped (no package.json in the current project)' >&2
+    printf '%s\n' '  No TTY available. Install a runtime manually before using the skill.' >&2
+    printf '%s\n' '  Options: obscura | playwright | puppeteer | chrome' >&2
   fi
 }
 
