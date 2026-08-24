@@ -1,6 +1,6 @@
 {
   "name": "browser-debug-agent",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Browser debugging and UI verification skill for AI coding agents",
   "bin": {
     "browser-debug-agent": "./bin/cli.sh",

@@ -203,13 +203,15 @@ Place in `.kiro/settings/mcp.json` (workspace) or `~/.kiro/settings/mcp.json` (g
   "mcpServers": {
     "playwright": {
       "command": "npx",
-      "args": ["@playwright/mcp@latest"]
+      "args": ["@playwright/mcp@latest", "--caps=network,storage"]
     }
   }
 }
 ```
 
-Or for Chrome DevTools:
+This enables core tools (navigate, click, type, resize, snapshot, screenshot, console, network requests) plus network mocking and cookie/storage inspection. Add `--caps=network,storage,testing` for assertions, or `--caps=network,storage,devtools` for tracing and video.
+
+Or for Chrome DevTools (performance/Lighthouse focus):
 
 ```json
 {

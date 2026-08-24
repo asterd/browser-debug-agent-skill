@@ -26,13 +26,7 @@ Drive browser-facing work to one of three exits: **VERIFIED**, **PARTIALLY VERIF
 
 When the session has MCP browser tools (navigate, click, type, screenshot, console, network, evaluate), use them as your primary execution layer. Do not write scripts. Call the tools directly following the Loop below.
 
-Typical MCP tool flow:
-1. `navigate` / `goto` → open the target URL
-2. `snapshot` / `read_page` → get accessibility tree or DOM
-3. `click` / `fill` / `type` → interact with elements
-4. `console` / `network` → check for errors
-5. `screenshot` → capture visual evidence when needed
-6. `resize` / `setViewport` → test responsive behavior
+**Read `references/mcp-patterns.md` before your first MCP tool call.** It has the exact sequences for responsive testing, interaction, and verification. Critical: always `browser_snapshot` after `browser_resize` — refs invalidate on viewport change.
 
 ### If no MCP tools — use installed runtimes via shell
 
