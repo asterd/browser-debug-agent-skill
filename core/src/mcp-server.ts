@@ -9,7 +9,7 @@ import { SessionManager } from './session.js';
 import { ServerManager } from './server.js';
 import { Evidence } from './evidence.js';
 import { verify } from './verify.js';
-import { PlaywrightAdapter } from './adapters/playwright.js';
+import { ChromeCdpAdapter } from './adapters/chrome-cdp.js';
 import type { BrowserAdapter, VerifyManifest } from './types.js';
 
 // State
@@ -139,8 +139,8 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
 
     case 'browser_open': {
       if (adapter) await adapter.close().catch(() => {});
-      adapter = new PlaywrightAdapter();
-      const session = await sessionManager.create('playwright');
+      adapter = new ChromeCdpAdapter();
+      const session = await sessionManager.create('chrome-cdp');
       currentSessionId = session.id;
       evidence = new Evidence(session.id, session.artifactDir, 'playwright');
 
@@ -274,29 +274,34 @@ function startServer() {
   init();
   const rl = createInterface({ input: process.stdin });
 
-  rl.on('line', async (line) => {
-    let parsed: { id?: unknown; method: string; params?: unknown };
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      return;
-    }
+  // Process messages sequentially (critical: browser_open must complete before snapshot)
+  let queue: Promise<void> = Promise.resolve();
 
-    // Notifications (no id) don't get responses
-    if (parsed.id === undefined) {
-      await handleRequest({ id: null, method: parsed.method, params: parsed.params });
-      return;
-    }
+  rl.on('line', (line) => {
+    queue = queue.then(async () => {
+      let parsed: { id?: unknown; method: string; params?: unknown };
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        return;
+      }
 
-    const req = parsed as { id: unknown; method: string; params?: unknown };
-    const result = await handleRequest(req);
+      // Notifications (no id) don't get responses
+      if (parsed.id === undefined) {
+        await handleRequest({ id: null, method: parsed.method, params: parsed.params });
+        return;
+      }
 
-    const response = {
-      jsonrpc: '2.0',
-      id: req.id,
-      result,
-    };
-    process.stdout.write(JSON.stringify(response) + '\n');
+      const req = parsed as { id: unknown; method: string; params?: unknown };
+      const result = await handleRequest(req);
+
+      const response = {
+        jsonrpc: '2.0',
+        id: req.id,
+        result,
+      };
+      process.stdout.write(JSON.stringify(response) + '\n');
+    });
   });
 }
 

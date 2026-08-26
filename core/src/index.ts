@@ -20,5 +20,5 @@ export { SessionManager } from './session.js';
 export { ServerManager } from './server.js';
 export { Evidence } from './evidence.js';
 export { verify } from './verify.js';
-export { PlaywrightAdapter } from './adapters/playwright.js';
+export { ChromeCdpAdapter } from './adapters/chrome-cdp.js';
 export { startDaemon, stopDaemon, sendCommand, isDaemonRunning, socketPath } from './daemon.js';

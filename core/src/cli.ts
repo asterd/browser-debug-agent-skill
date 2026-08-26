@@ -8,7 +8,7 @@ import { SessionManager } from './session.js';
 import { ServerManager } from './server.js';
 import { Evidence } from './evidence.js';
 import { verify } from './verify.js';
-import { PlaywrightAdapter } from './adapters/playwright.js';
+import { ChromeCdpAdapter } from './adapters/chrome-cdp.js';
 import type { VerifyManifest, InteractAction, ConsoleEntry, NetworkEntry } from './types.js';
 
 const execFileP = promisify(execFileCb);
@@ -293,38 +293,23 @@ async function cmdSetup() {
     allGood = false;
   }
 
-  // 2. Playwright
-  const pw = await execSafe('npx', ['playwright', '--version']);
-  if (pw.ok) {
-    ok(`Playwright ${pw.stdout}`);
-  } else {
-    warn('Playwright not found — installing...');
-    const installResult = await execSafe('npm', ['install', '--save-dev', '@playwright/test@latest'], { timeout: 60000 });
-    if (installResult.ok) {
-      ok('Playwright installed');
-    } else {
-      fail('Could not install Playwright');
-      allGood = false;
-    }
+  // 2. Chrome
+  const chromePaths = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    'google-chrome', 'google-chrome-stable', 'chromium',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+  ];
+  let chromeFound = false;
+  for (const p of chromePaths) {
+    const r = await execSafe(p, ['--version'], { timeout: 5000 });
+    if (r.ok) { ok(`Chrome: ${r.stdout}`); chromeFound = true; break; }
+  }
+  if (!chromeFound) {
+    fail('Chrome not found. Install Google Chrome: https://google.com/chrome');
+    allGood = false;
   }
 
-  // 3. Chromium browser for Playwright
-  const hasBrowsers = await exists('node_modules/playwright-core/.local-browsers');
-  if (!hasBrowsers) {
-    info('Installing Chromium for Playwright...');
-    const browserInstall = await execSafe('npx', ['playwright', 'install', 'chromium'], { timeout: 120000 });
-    if (browserInstall.ok) {
-      ok('Chromium installed');
-    } else {
-      const alt = await execSafe('npx', ['playwright', 'install', '--with-deps', 'chromium'], { timeout: 120000 });
-      if (alt.ok) ok('Chromium installed (with deps)');
-      else { warn('Could not auto-install Chromium — run: npx playwright install chromium'); }
-    }
-  } else {
-    ok('Chromium already available');
-  }
-
-  // 4. Core build
+  // 3. Core build
   const coreDistExists = await exists(join(__dirname, 'mcp-server.js'));
   if (coreDistExists) {
     ok('bda core built');
@@ -453,10 +438,7 @@ async function cmdSetup() {
 async function cmdDoctor() {
   console.log('Browser Debug Agent — Doctor\n');
 
-  const pw = await execSafe('npx', ['playwright', '--version']);
-  console.log(`  Playwright:      ${pw.ok ? pw.stdout : 'not found'}`);
-
-  const chromePaths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', 'google-chrome', 'chromium'];
+  const chromePaths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', 'google-chrome', 'google-chrome-stable', 'chromium'];
   let chromeVer = 'not found';
   for (const p of chromePaths) {
     const r = await execSafe(p, ['--version'], { timeout: 5000 });
@@ -499,7 +481,7 @@ async function cmdDoctor() {
     return false;
   })();
 
-  console.log(`\n  Status: ${pw.ok && anyReady ? 'READY' : 'INCOMPLETE — run bda setup <host>'}`);
+  console.log(`\n  Status: ${chromeVer !== 'not found' && anyReady ? 'READY' : 'INCOMPLETE — run bda setup <host>'}`);
 }
 
 // --------------- BROWSER COMMANDS (daemon-backed) ---------------
@@ -534,7 +516,7 @@ async function cmdOpen() {
   }
 
   // Create new session
-  const session = await _sm.create('playwright', { url, browserOwned: true });
+  const session = await _sm.create('chrome-cdp', { url, browserOwned: true });
   await saveState({ sessionId: session.id });
 
   // Start daemon
@@ -544,7 +526,7 @@ async function cmdOpen() {
   // Open the URL in the daemon
   await sendCommand(session.id, 'launch', { url, viewport: { width, height }, headless: true });
 
-  const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+  const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
   await evidence.emit('open', { url, viewport: { width, height } });
 
   ok(`Session ${session.id} — browser open at ${url}`);
@@ -561,7 +543,7 @@ async function cmdSnapshot() {
   _sm = new SessionManager();
   const session = await _sm.get(state.sessionId);
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     await evidence.emit('snapshot', { treeLength: result.tree.length });
   }
 
@@ -588,7 +570,7 @@ async function cmdInteract() {
   _sm = new SessionManager();
   const session = await _sm.get(state.sessionId);
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     await evidence.emit('interact', { action, result });
   }
 
@@ -609,7 +591,7 @@ async function cmdEvaluate() {
   _sm = new SessionManager();
   const session = await _sm.get(state.sessionId);
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     await evidence.emit('evaluate', { expression: expr, result });
   }
 
@@ -626,7 +608,7 @@ async function cmdConsole() {
   _sm = new SessionManager();
   const session = await _sm.get(state.sessionId);
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     await evidence.emit('console', { count: entries.length });
   }
 
@@ -647,7 +629,7 @@ async function cmdNetwork() {
   _sm = new SessionManager();
   const session = await _sm.get(state.sessionId);
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     await evidence.emit('network', { count: entries.length });
   }
 
@@ -672,7 +654,7 @@ async function cmdScreenshot() {
   await sendCommand(state.sessionId, 'screenshot', { path });
 
   if (session) {
-    const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
+    const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
     const registered = await evidence.registerArtifact(path, 'image/png');
     await evidence.emit('screenshot', registered, { artifacts: [registered] });
   }
@@ -692,9 +674,9 @@ async function cmdVerify() {
 
   // For verify, we use the in-process adapter (self-contained lifecycle)
   _sm = new SessionManager();
-  const session = await _sm.create('playwright');
-  const evidence = new Evidence(session.id, session.artifactDir, 'playwright');
-  const adapter = new PlaywrightAdapter();
+  const session = await _sm.create('chrome-cdp');
+  const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
+  const adapter = new ChromeCdpAdapter();
 
   try {
     const results = await verify(adapter, manifest);
