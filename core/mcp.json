@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "browser-debug-agent": {
+      "command": "node",
+      "args": ["./dist/mcp-server.js"],
+      "disabled": false
+    }
+  }
+}

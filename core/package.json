@@ -1,0 +1,68 @@
+{
+  "name": "browser-debug-agent",
+  "version": "2.0.0",
+  "description": "Browser debugging orchestrator for AI coding agents. One command to set up, one command to verify.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "bda": "./dist/cli.js",
+    "browser-debug-agent": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "node --test dist/**/*.test.js",
+    "test:e2e": "sh test-e2e.sh",
+    "pretest": "tsc"
+  },
+  "files": [
+    "dist/",
+    "!dist/**/*.test.*",
+    "!dist/**/*.test.d.ts",
+    "!dist/**/*.test.js.map",
+    "fixtures/"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "browser-debugging",
+    "ai-agent",
+    "playwright",
+    "mcp",
+    "kiro",
+    "claude-code",
+    "codex",
+    "cursor",
+    "ui-testing",
+    "verification"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/browser-debug-agent-skill.git",
+    "directory": "core"
+  },
+  "homepage": "https://github.com/anthropics/browser-debug-agent-skill#readme",
+  "license": "MIT",
+  "author": "asterd",
+  "peerDependencies": {
+    "playwright": ">=1.40.0",
+    "@playwright/test": ">=1.40.0",
+    "playwright-core": ">=1.40.0"
+  },
+  "peerDependenciesMeta": {
+    "playwright": { "optional": true },
+    "@playwright/test": { "optional": true },
+    "playwright-core": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "playwright": "^1.62.1",
+    "typescript": "5.5.4"
+  }
+}

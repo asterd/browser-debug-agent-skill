@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@v4
       - name: Validate shell syntax
         run: for file in scripts/*.sh tests/*.sh; do sh -n "$file"; done
       - name: Test backend detection
@@ -21,3 +21,30 @@ jobs:
         run: ./tests/install-smoke.sh
       - name: Validate detector JSON
         run: ./scripts/detect-browser-backend.sh | jq -e '.schema_version == 1 and (.tools | type == "object")' >/dev/null
+
+  core:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        working-directory: core
+        run: npm ci || npm install
+      - name: Build
+        working-directory: core
+        run: npm run build
+      - name: Unit tests
+        working-directory: core
+        run: node --test dist/session.test.js dist/evidence.test.js dist/verify.test.js dist/server.test.js dist/integration.test.js dist/mcp-server.test.js
+      - name: Install Playwright Chromium
+        working-directory: core
+        run: npx playwright install chromium
+      - name: E2E test (verify)
+        working-directory: core
+        run: sh test-e2e.sh
+      - name: E2E test (repair loop)
+        working-directory: core
+        run: sh test-e2e-repair.sh

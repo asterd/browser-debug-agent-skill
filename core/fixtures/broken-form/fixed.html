@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
+    .field { margin: 1rem 0; }
+    label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
+    input { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+    button { padding: 0.5rem 1.5rem; cursor: pointer; }
+    #status { margin-top: 1rem; padding: 0.5rem; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <h1>Settings</h1>
+  <form id="settings-form">
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" value="admin">
+    </div>
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" value="admin@example.com">
+    </div>
+    <button type="submit" id="save-btn">Save</button>
+  </form>
+  <div id="status"></div>
+
+  <script>
+    // FIXED: preventDefault + correct endpoint
+    const form = document.getElementById('settings-form');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const resp = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          email: document.getElementById('email').value,
+        }),
+      });
+      if (resp.ok) {
+        document.getElementById('status').textContent = 'Saved';
+        document.getElementById('status').className = 'success';
+      } else {
+        document.getElementById('status').textContent = 'Error saving';
+        document.getElementById('status').className = 'error';
+      }
+    });
+  </script>
+</body>
+</html>

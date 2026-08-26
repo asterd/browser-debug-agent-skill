@@ -1,0 +1,26 @@
+{
+  "url": "http://127.0.0.1:{{PORT}}/index.html",
+  "viewport": { "width": 1280, "height": 720 },
+  "assertions": [
+    {
+      "type": "visible",
+      "expect": "Settings",
+      "label": "Page heading is visible"
+    },
+    {
+      "type": "console_errors",
+      "expect": "none",
+      "label": "No console errors after load"
+    },
+    {
+      "type": "network_status",
+      "expect": { "failed": "none" },
+      "label": "No failed network requests"
+    },
+    {
+      "type": "js",
+      "expect": "document.getElementById('status').textContent === 'Saved'",
+      "label": "Status shows 'Saved' after submit"
+    }
+  ]
+}
