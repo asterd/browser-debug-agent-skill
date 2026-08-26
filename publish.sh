@@ -1,19 +1,24 @@
 #!/usr/bin/env sh
 set -eu
 
-# publish.sh — Build and publish browser-debug-agent to npm + push to GitHub.
+# publish.sh — Bump version, build, test, publish to npm, push to GitHub.
 # Run from the repo root.
 #
-# Prerequisites:
-#   - npm login (run once, authenticates via browser)
-#   - gh auth login (for GitHub push/release)
-#
 # Usage:
-#   sh publish.sh          # publish current version
-#   sh publish.sh --dry    # dry run (no publish, no push)
+#   sh publish.sh              # bump patch, publish
+#   sh publish.sh minor        # bump minor, publish
+#   sh publish.sh major        # bump major, publish
+#   sh publish.sh --dry        # dry run (no publish, no push)
 
+BUMP="patch"
 DRY_RUN=false
-case "${1:-}" in --dry|--dry-run) DRY_RUN=true ;; esac
+
+for arg in "$@"; do
+  case "$arg" in
+    --dry|--dry-run) DRY_RUN=true ;;
+    patch|minor|major) BUMP="$arg" ;;
+  esac
+done
 
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CORE_DIR="$REPO_ROOT/core"
@@ -32,25 +37,28 @@ command -v git >/dev/null || fail "git not found"
 NODE_MAJOR=$(node -e "process.stdout.write(String(parseInt(process.version.slice(1))))")
 [ "$NODE_MAJOR" -ge 20 ] || fail "Node >= 20 required (got $NODE_MAJOR)"
 
-# Check npm auth
 npm whoami >/dev/null 2>&1 || fail "Not logged in to npm. Run: npm login"
 ok "npm authenticated as $(npm whoami)"
 
-# Check clean git state
-if [ -n "$(git -C "$REPO_ROOT" status --porcelain)" ]; then
-  fail "Working tree is not clean. Commit or stash changes first."
-fi
-ok "Git working tree clean"
+# --- Bump version ---
+cd "$CORE_DIR"
+
+OLD_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+info "Current version: $OLD_VERSION"
+
+# Bump in package.json (no git tag — we'll tag after tests pass)
+npm version "$BUMP" --no-git-tag-version >/dev/null
+VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+ok "Bumped to $VERSION ($BUMP)"
 
 # --- Build ---
-info "Building core..."
-cd "$CORE_DIR"
+info "Building..."
 npm install
 npm run build
 ok "Build complete"
 
 # --- Test ---
-info "Running tests..."
+info "Running unit tests..."
 TMPDIR=/tmp node --test dist/session.test.js dist/evidence.test.js dist/verify.test.js dist/server.test.js dist/integration.test.js dist/mcp-server.test.js
 ok "Unit tests pass (29/29)"
 
@@ -61,11 +69,20 @@ ok "E2E verify pass"
 TMPDIR=/tmp sh test-e2e-repair.sh
 ok "E2E repair loop pass"
 
-# --- Version ---
-VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
-info "Publishing version $VERSION"
+# --- Commit + push the version bump ---
+cd "$REPO_ROOT"
+git add -A
+git commit -m "release: v$VERSION"
+
+if [ "$DRY_RUN" = true ]; then
+  info "[DRY RUN] Would push commit and tag v$VERSION"
+else
+  git push origin HEAD
+  ok "Pushed version bump"
+fi
 
 # --- Publish to npm ---
+cd "$CORE_DIR"
 if [ "$DRY_RUN" = true ]; then
   info "[DRY RUN] npm publish --dry-run"
   npm publish --dry-run --access public
@@ -75,20 +92,15 @@ else
   ok "Published browser-debug-agent@$VERSION to npm"
 fi
 
-# --- Git tag + push ---
+# --- Git tag ---
 cd "$REPO_ROOT"
 TAG="v$VERSION"
-
-if git tag -l "$TAG" | grep -q .; then
-  info "Tag $TAG already exists, skipping"
+if [ "$DRY_RUN" = true ]; then
+  info "[DRY RUN] Would create tag $TAG"
 else
-  if [ "$DRY_RUN" = true ]; then
-    info "[DRY RUN] Would create tag $TAG and push"
-  else
-    git tag -a "$TAG" -m "Release $VERSION"
-    git push origin main --tags
-    ok "Pushed tag $TAG to GitHub"
-  fi
+  git tag -a "$TAG" -m "Release $VERSION"
+  git push origin "$TAG"
+  ok "Pushed tag $TAG"
 fi
 
 # --- Summary ---
@@ -100,4 +112,4 @@ echo "    npm install -g browser-debug-agent"
 echo "    bda setup kiro"
 echo ""
 echo "  Or without global install:"
-echo "    npx browser-debug-agent setup kiro"
+echo "    npx browser-debug-agent@latest setup kiro"

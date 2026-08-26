@@ -33,7 +33,11 @@ export function socketPath(sessionId: string): string {
  */
 export function isDaemonRunning(sessionId: string): boolean {
   const sock = socketPath(sessionId);
-  if (platform() === 'win32') return false; // TODO: named pipe check
+  if (platform() === 'win32') {
+    // On Windows, named pipes don't show up in the filesystem.
+    // We check by looking for the daemon info file instead.
+    return existsSync(join(SOCKET_DIR, `${sessionId}.json`));
+  }
   return existsSync(sock);
 }
 

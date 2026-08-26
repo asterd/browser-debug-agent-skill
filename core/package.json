@@ -10,7 +10,7 @@
     "browser-debug-agent": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc && sh ./build-bundle.sh",
+    "build": "tsc && node ./build-bundle.mjs",
     "prepublishOnly": "npm run build",
     "test": "node --test dist/**/*.test.js",
     "test:e2e": "sh test-e2e.sh",
@@ -26,7 +26,8 @@
   ],
   "os": [
     "darwin",
-    "linux"
+    "linux",
+    "win32"
   ],
   "engines": {
     "node": ">=20"
@@ -51,25 +52,11 @@
   "homepage": "https://github.com/anthropics/browser-debug-agent-skill#readme",
   "license": "MIT",
   "author": "asterd",
-  "peerDependencies": {
-    "playwright": ">=1.40.0",
-    "@playwright/test": ">=1.40.0",
-    "playwright-core": ">=1.40.0"
-  },
-  "peerDependenciesMeta": {
-    "playwright": {
-      "optional": true
-    },
-    "@playwright/test": {
-      "optional": true
-    },
-    "playwright-core": {
-      "optional": true
-    }
+  "dependencies": {
+    "playwright": "^1.52.0"
   },
   "devDependencies": {
     "@types/node": "20.14.10",
-    "playwright": "^1.62.1",
     "typescript": "5.5.4"
   }
 }
