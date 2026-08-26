@@ -39,7 +39,9 @@ async function runAssertion(adapter: BrowserAdapter, assertion: VerifyAssertion)
         // expect: { url: pattern, status: 200 } or { failed: 'none' }
         const expect = assertion.expect as Record<string, unknown>;
         if (expect.failed === 'none') {
-          const failed = entries.filter(e => e.status >= 400);
+          // Ignore favicon and other browser-internal requests
+          const ignored = /favicon\.ico|\.well-known|^chrome/;
+          const failed = entries.filter(e => e.status >= 400 && !ignored.test(e.url));
           return failed.length === 0
             ? { assertion, status: 'pass', actual: [] }
             : { assertion, status: 'fail', actual: failed.map(e => `${e.method} ${e.url} ${e.status}`) };
