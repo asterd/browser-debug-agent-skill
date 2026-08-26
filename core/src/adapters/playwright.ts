@@ -1,7 +1,8 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   BrowserAdapter, OpenOpts, SnapshotResult,
@@ -173,32 +174,44 @@ export class PlaywrightAdapter implements BrowserAdapter {
    * Uses createRequire to resolve playwright from the project's node_modules.
    */
   private helperScript(playwrightPath: string): string {
-    // We pass the project cwd so createRequire can resolve from there
+    // Pass both the project cwd AND the package's own location for resolution
     const projectCwd = process.cwd().replace(/\\/g, '\\\\');
+    // Get the package root directory (one level up from dist/adapters/)
+    const currentDir = dirname(fileURLToPath(import.meta.url));
+    const packageDir = resolve(currentDir, '..', '..').replace(/\\/g, '\\\\');
     return `
 import { createInterface } from 'readline';
 import { createRequire } from 'module';
 import { join } from 'path';
 
-// Use createRequire anchored to the project root to resolve playwright
-const require = createRequire(join('${projectCwd}', 'package.json'));
+// Try multiple resolution roots:
+// 1. User's project (if they have playwright installed)
+// 2. The browser-debug-agent package itself (global install may have it)
+// 3. Global node_modules
+const roots = [
+  join('${projectCwd}', 'package.json'),
+  join('${packageDir}', 'package.json'),
+];
+
 let chromium;
-try {
-  const pw = require('playwright');
-  chromium = pw.chromium;
-} catch (e) {
+let loaded = false;
+for (const root of roots) {
+  if (loaded) break;
   try {
-    const pw = require('@playwright/test');
-    chromium = pw.chromium;
-  } catch (e2) {
-    try {
-      const pw = require('playwright-core');
-      chromium = pw.chromium;
-    } catch (e3) {
-      process.stderr.write('Cannot load playwright: ' + e3.message + '\\n');
-      process.exit(1);
+    const req = createRequire(root);
+    for (const mod of ['playwright', '@playwright/test', 'playwright-core']) {
+      try {
+        const pw = req(mod);
+        chromium = pw.chromium;
+        if (chromium) { loaded = true; break; }
+      } catch {}
     }
-  }
+  } catch {}
+}
+
+if (!chromium) {
+  process.stderr.write('Cannot load playwright. Install it: npm install -D playwright\\n');
+  process.exit(1);
 }
 
 let browser, context, page;
