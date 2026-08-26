@@ -10,7 +10,7 @@
     "browser-debug-agent": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && sh ./build-bundle.sh",
     "prepublishOnly": "npm run build",
     "test": "node --test dist/**/*.test.js",
     "test:e2e": "sh test-e2e.sh",
@@ -21,7 +21,8 @@
     "!dist/**/*.test.*",
     "!dist/**/*.test.d.ts",
     "!dist/**/*.test.js.map",
-    "fixtures/"
+    "fixtures/",
+    "skill/"
   ],
   "os": [
     "darwin",

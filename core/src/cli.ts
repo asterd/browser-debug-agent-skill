@@ -340,20 +340,39 @@ async function cmdSetup() {
   } else {
     info(`Installing skill to ${skillDir}...`);
     await mkdir(skillDir, { recursive: true });
-    const repoRoot = resolve(__dirname, '../..');
-    const bundleRoot = resolve(__dirname, '..');
-    let sourceRoot = repoRoot;
-    if (!await exists(join(repoRoot, 'SKILL.md'))) sourceRoot = bundleRoot;
 
-    try {
-      await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
-      if (await exists(join(sourceRoot, 'references'))) {
-        await cp(join(sourceRoot, 'references'), join(skillDir, 'references'), { recursive: true });
+    // Find SKILL.md source: check multiple locations
+    // 1. skill/ directory in the package (npm install)
+    // 2. repo root (development/git clone)
+    const packageRoot = resolve(__dirname, '..');
+    const candidates = [
+      join(packageRoot, 'skill'),          // npm package: core/skill/
+      resolve(packageRoot, '..'),           // git clone: repo root
+      join(packageRoot, 'dist', '..', 'skill'), // fallback
+    ];
+
+    let sourceRoot = '';
+    for (const candidate of candidates) {
+      if (await exists(join(candidate, 'SKILL.md'))) {
+        sourceRoot = candidate;
+        break;
       }
-      ok(`Skill installed in ${skillDir}`);
-    } catch (e) {
-      fail(`Could not copy skill files: ${e}`);
+    }
+
+    if (!sourceRoot) {
+      fail('Could not find SKILL.md. The package may be corrupted — try reinstalling.');
       allGood = false;
+    } else {
+      try {
+        await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
+        if (await exists(join(sourceRoot, 'references'))) {
+          await cp(join(sourceRoot, 'references'), join(skillDir, 'references'), { recursive: true });
+        }
+        ok(`Skill installed in ${skillDir}`);
+      } catch (e) {
+        fail(`Could not copy skill files: ${e}`);
+        allGood = false;
+      }
     }
   }
 
