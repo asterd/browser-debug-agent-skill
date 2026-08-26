@@ -1,6 +1,6 @@
 {
   "name": "browser-debug-agent",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Browser debugging orchestrator for AI coding agents. One command to set up, one command to verify.",
   "type": "module",
   "main": "./dist/index.js",
@@ -57,9 +57,15 @@
     "playwright-core": ">=1.40.0"
   },
   "peerDependenciesMeta": {
-    "playwright": { "optional": true },
-    "@playwright/test": { "optional": true },
-    "playwright-core": { "optional": true }
+    "playwright": {
+      "optional": true
+    },
+    "@playwright/test": {
+      "optional": true
+    },
+    "playwright-core": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "20.14.10",
