@@ -224,9 +224,10 @@ async function detectHostAsync(): Promise<string | null> {
   return null;
 }
 
-function parseHostArg(): { host: string; scope: 'project' | 'global' } {
+function parseHostArg(): { host: string; scope: 'project' | 'global'; force: boolean } {
   let host: string | null = null;
   let scope: 'project' | 'global' = 'project';
+  let force = false;
 
   for (let i = 3; i < process.argv.length; i++) {
     const arg = process.argv[i];
@@ -234,6 +235,8 @@ function parseHostArg(): { host: string; scope: 'project' | 'global' } {
       host = process.argv[++i];
     } else if (arg === '--global' || arg === '-g') {
       scope = 'global';
+    } else if (arg === '--force' || arg === '-f' || arg === '--update') {
+      force = true;
     } else if (!arg.startsWith('-') && !host) {
       host = arg;
     }
@@ -245,13 +248,13 @@ function parseHostArg(): { host: string; scope: 'project' | 'global' } {
     process.exit(1);
   }
 
-  return { host: host || '', scope };
+  return { host: host || '', scope, force };
 }
 
 // --------------- SETUP ---------------
 
 async function cmdSetup() {
-  let { host, scope } = parseHostArg();
+  let { host, scope, force } = parseHostArg();
 
   // If no host specified, try to auto-detect or ask
   if (!host) {
@@ -332,47 +335,45 @@ async function cmdSetup() {
     else { fail('Could not build core'); allGood = false; }
   }
 
-  // 5. Install skill files
+  // 5. Install/update skill files (always overwrite — these come from the package)
   const skillDir = hostConfig.skillDir(scope);
   const skillExists = await exists(join(skillDir, 'SKILL.md'));
-  if (skillExists) {
-    ok(`Skill installed in ${skillDir}`);
-  } else {
-    info(`Installing skill to ${skillDir}...`);
-    await mkdir(skillDir, { recursive: true });
+  const skillAction = skillExists ? 'Updating' : 'Installing';
+  info(`${skillAction} skill in ${skillDir}...`);
+  await mkdir(skillDir, { recursive: true });
 
-    // Find SKILL.md source: check multiple locations
-    // 1. skill/ directory in the package (npm install)
-    // 2. repo root (development/git clone)
-    const packageRoot = resolve(__dirname, '..');
-    const candidates = [
-      join(packageRoot, 'skill'),          // npm package: core/skill/
-      resolve(packageRoot, '..'),           // git clone: repo root
-      join(packageRoot, 'dist', '..', 'skill'), // fallback
-    ];
+  // Find SKILL.md source: check multiple locations
+  const packageRoot = resolve(__dirname, '..');
+  const candidates = [
+    join(packageRoot, 'skill'),
+    resolve(packageRoot, '..'),
+    join(packageRoot, 'dist', '..', 'skill'),
+  ];
 
-    let sourceRoot = '';
-    for (const candidate of candidates) {
-      if (await exists(join(candidate, 'SKILL.md'))) {
-        sourceRoot = candidate;
-        break;
-      }
+  let sourceRoot = '';
+  for (const candidate of candidates) {
+    if (await exists(join(candidate, 'SKILL.md'))) {
+      sourceRoot = candidate;
+      break;
     }
+  }
 
-    if (!sourceRoot) {
-      fail('Could not find SKILL.md. The package may be corrupted — try reinstalling.');
-      allGood = false;
-    } else {
-      try {
-        await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
-        if (await exists(join(sourceRoot, 'references'))) {
-          await cp(join(sourceRoot, 'references'), join(skillDir, 'references'), { recursive: true });
-        }
-        ok(`Skill installed in ${skillDir}`);
-      } catch (e) {
-        fail(`Could not copy skill files: ${e}`);
-        allGood = false;
+  if (!sourceRoot) {
+    fail('Could not find SKILL.md. The package may be corrupted — try reinstalling.');
+    allGood = false;
+  } else {
+    try {
+      await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
+      if (await exists(join(sourceRoot, 'references'))) {
+        // Remove old references to avoid stale files
+        const refsDir = join(skillDir, 'references');
+        try { const { rm } = await import('node:fs/promises'); await rm(refsDir, { recursive: true, force: true }); } catch {}
+        await cp(join(sourceRoot, 'references'), refsDir, { recursive: true });
       }
+      ok(`Skill ${skillExists ? 'updated' : 'installed'} in ${skillDir}`);
+    } catch (e) {
+      fail(`Could not copy skill files: ${e}`);
+      allGood = false;
     }
   }
 
