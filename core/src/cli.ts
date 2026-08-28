@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
+import { platform } from 'node:os';
 import { readFile, writeFile, mkdir, access, cp } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -438,11 +439,23 @@ async function cmdSetup() {
 async function cmdDoctor() {
   console.log('Browser Debug Agent — Doctor\n');
 
-  const chromePaths = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', 'google-chrome', 'google-chrome-stable', 'chromium'];
+  const chromePaths = platform() === 'win32'
+    ? ['C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+       'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe']
+    : ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+       'google-chrome', 'google-chrome-stable', 'chromium'];
   let chromeVer = 'not found';
-  for (const p of chromePaths) {
-    const r = await execSafe(p, ['--version'], { timeout: 5000 });
-    if (r.ok) { chromeVer = r.stdout; break; }
+  if (platform() === 'win32') {
+    // On Windows, just check existence — --version hangs
+    for (const p of chromePaths) {
+      if (await exists(p)) { chromeVer = `found at ${p}`; break; }
+    }
+  } else {
+    for (const p of chromePaths) {
+      const r = await execSafe(p, ['--version'], { timeout: 5000 });
+      if (r.ok) { chromeVer = r.stdout; break; }
+    }
   }
   console.log(`  Chrome:          ${chromeVer}`);
   console.log(`  Node.js:         ${process.version}`);

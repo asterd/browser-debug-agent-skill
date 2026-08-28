@@ -8,7 +8,7 @@ import { promisify } from 'node:util';
 import { tmpdir, platform } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { accessSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { WebSocket } from './ws-minimal.js';
@@ -35,11 +35,15 @@ export class ChromeCdpAdapter implements BrowserAdapter {
   async version(): Promise<string> {
     const chromePath = findChrome();
     if (!chromePath) return 'not found';
+    if (platform() === 'win32') {
+      // Chrome on Windows doesn't support --version well; use registry or just report found
+      return `Chrome found at ${chromePath}`;
+    }
     try {
       const { stdout } = await execFileP(chromePath, ['--version'], { timeout: 5000 });
       return stdout.trim();
     } catch {
-      return 'unknown';
+      return 'found (version unknown)';
     }
   }
 
@@ -78,6 +82,10 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     this.chromeProc = spawn(chromePath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
+      // shell: true is required on Windows for paths with spaces (e.g. "Program Files")
+      shell: platform() === 'win32',
+      // On Windows, don't create a visible console window
+      ...(platform() === 'win32' ? { windowsHide: true } : {}),
     });
 
     // Wait for CDP to be ready
@@ -223,8 +231,15 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     } catch { /* already dead */ }
     this.ws?.close();
     this.ws = null;
-    this.chromeProc?.kill();
-    this.chromeProc = null;
+    if (this.chromeProc) {
+      if (platform() === 'win32') {
+        // SIGTERM doesn't work on Windows; use taskkill
+        try { execSync(`taskkill /pid ${this.chromeProc.pid} /T /F`, { stdio: 'ignore' }); } catch {}
+      } else {
+        this.chromeProc.kill();
+      }
+      this.chromeProc = null;
+    }
   }
 
   private send(method: string, params?: unknown): Promise<unknown> {
@@ -261,31 +276,63 @@ export class ChromeCdpAdapter implements BrowserAdapter {
 
 function findChrome(): string | null {
   const p = platform();
+
   if (p === 'darwin') {
     const paths = [
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
       '/Applications/Chromium.app/Contents/MacOS/Chromium',
     ];
-    for (const path of paths) {
-      try { accessSync(path); return path; } catch {}
+    for (const candidate of paths) {
+      if (existsSync(candidate)) return candidate;
     }
   } else if (p === 'win32') {
-    const paths = [
+    // Build list of all known Chrome/Edge locations on Windows
+    const envDirs = [
+      process.env.PROGRAMFILES,
+      process.env['PROGRAMFILES(X86)'],
+      process.env.LOCALAPPDATA,
+      `${process.env.USERPROFILE}\\AppData\\Local`,
+    ].filter(Boolean) as string[];
+
+    const relativePaths = [
+      'Google\\Chrome\\Application\\chrome.exe',
+      'Google\\Chrome SxS\\Application\\chrome.exe',        // Chrome Canary
+      'Microsoft\\Edge\\Application\\msedge.exe',            // Edge (Chromium)
+      'BraveSoftware\\Brave-Browser\\Application\\brave.exe',
+      'Chromium\\Application\\chrome.exe',
+    ];
+
+    // Also try fixed well-known paths
+    const fixedPaths = [
       'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
       'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+      'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+      'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     ];
-    for (const path of paths) {
-      try { accessSync(path); return path; } catch {}
+
+    // Combine: env-based + fixed
+    const allPaths = [
+      ...envDirs.flatMap(dir => relativePaths.map(rel => join(dir, rel))),
+      ...fixedPaths,
+    ];
+
+    for (const candidate of allPaths) {
+      if (existsSync(candidate)) return candidate;
     }
+
+    // Last resort: check if 'chrome' or 'msedge' is in PATH
+    try { const r = execSync('where chrome', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim(); if (r) return r.split('\n')[0]; } catch {}
+    try { const r = execSync('where msedge', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).trim(); if (r) return r.split('\n')[0]; } catch {}
   } else {
     // Linux
-    const cmds = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'];
+    const cmds = ['google-chrome', 'google-chrome-stable', 'chromium-browser', 'chromium', 'microsoft-edge'];
     for (const cmd of cmds) {
       try { return execSync(`which ${cmd}`, { encoding: 'utf8' }).trim(); } catch {}
     }
   }
+
   return null;
 }
 
