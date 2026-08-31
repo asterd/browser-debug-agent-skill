@@ -123,11 +123,16 @@ export class WebSocket {
         for (const handler of this.handlers) {
           handler(msg);
         }
+      } else if (opcode === 0x09) { // ping — reply with pong
+        const pong = Buffer.alloc(2);
+        pong[0] = 0x8a; // FIN + pong opcode
+        pong[1] = 0x00; // no payload
+        this.socket?.write(pong);
       } else if (opcode === 0x08) { // close
         this.close();
         return;
       }
-      // Ignore ping/pong/binary for now
+      // Ignore pong (0x0a) and binary (0x02)
     }
   }
 

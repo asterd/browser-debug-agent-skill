@@ -9,7 +9,8 @@ import { SessionManager } from './session.js';
 import { ServerManager } from './server.js';
 import { Evidence } from './evidence.js';
 import { verify } from './verify.js';
-import { ChromeCdpAdapter } from './adapters/chrome-cdp.js';
+import { createAdapter } from './adapters/factory.js';
+import type { BackendName } from './adapters/factory.js';
 import type { VerifyManifest, InteractAction, ConsoleEntry, NetworkEntry } from './types.js';
 
 const execFileP = promisify(execFileCb);
@@ -528,19 +529,23 @@ async function cmdOpen() {
     await _sm.stop(oldState.sessionId);
   }
 
+  // Determine backend: --playwright flag or default chrome-cdp
+  const usePlaywright = process.argv.includes('--playwright');
+  const backend: BackendName = usePlaywright ? 'playwright' : 'chrome-cdp';
+
   // Create new session
-  const session = await _sm.create('chrome-cdp', { url, browserOwned: true });
+  const session = await _sm.create(backend, { url, browserOwned: true });
   await saveState({ sessionId: session.id });
 
-  // Start daemon
-  info(`Starting browser daemon...`);
-  await startDaemon(session.id, process.cwd());
+  // Start daemon with the chosen backend
+  info(`Starting browser daemon (${backend})...`);
+  await startDaemon(session.id, process.cwd(), backend);
 
   // Open the URL in the daemon
   await sendCommand(session.id, 'launch', { url, viewport: { width, height }, headless: true });
 
-  const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
-  await evidence.emit('open', { url, viewport: { width, height } });
+  const evidence = new Evidence(session.id, session.artifactDir, backend);
+  await evidence.emit('open', { url, viewport: { width, height }, backend });
 
   ok(`Session ${session.id} — browser open at ${url}`);
   info('Use: bda snapshot | bda interact | bda console | bda network | bda stop');
@@ -687,9 +692,10 @@ async function cmdVerify() {
 
   // For verify, we use the in-process adapter (self-contained lifecycle)
   _sm = new SessionManager();
-  const session = await _sm.create('chrome-cdp');
-  const evidence = new Evidence(session.id, session.artifactDir, 'chrome-cdp');
-  const adapter = new ChromeCdpAdapter();
+  const backend: BackendName = (process.argv.find(a => a === '--playwright') ? 'playwright' : 'chrome-cdp');
+  const session = await _sm.create(backend);
+  const evidence = new Evidence(session.id, session.artifactDir, backend);
+  const adapter = await createAdapter(backend);
 
   try {
     const results = await verify(adapter, manifest);
@@ -714,6 +720,8 @@ async function cmdVerify() {
     console.log(`\nResults: ${passed} pass, ${failed} fail, ${skipped} skip`);
 
     await adapter.close();
+    // Give OS time to reap Chrome subprocesses after kill
+    await new Promise(r => setTimeout(r, 200));
     await _sm.stop(session.id);
 
     if (allPass) { ok('VERIFIED'); }
@@ -721,6 +729,7 @@ async function cmdVerify() {
   } catch (err) {
     await evidence.emit('verify', undefined, { ok: false, error: String(err) });
     await adapter.close().catch(() => {});
+    await new Promise(r => setTimeout(r, 200));
     await _sm.stop(session.id);
     fail(`Error: ${err}`);
     process.exit(1);

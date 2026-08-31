@@ -1,6 +1,8 @@
 import { spawn, ChildProcess } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { platform } from 'node:os';
+import { execSync } from 'node:child_process';
 import type { ServerInfo } from './types.js';
 
 interface StartOpts {
@@ -75,7 +77,11 @@ export class ServerManager {
     const proc = this.ownedProcesses.get(pid);
     if (!proc) return false; // Not owned — refuse to kill.
     try {
-      proc.kill('SIGTERM');
+      if (platform() === 'win32') {
+        execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        proc.kill('SIGTERM');
+      }
     } catch { /* already dead */ }
     this.ownedProcesses.delete(pid);
     return true;

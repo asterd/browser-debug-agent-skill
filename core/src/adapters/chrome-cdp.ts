@@ -15,7 +15,7 @@ import { WebSocket } from './ws-minimal.js';
 import type {
   BrowserAdapter, OpenOpts, SnapshotResult,
   InteractAction, InteractResult, ConsoleEntry,
-  NetworkEntry, ScreenshotOpts, Artifact,
+  NetworkEntry, ScreenshotOpts, Artifact, CookieEntry,
 } from '../types.js';
 
 const execFileP = promisify(execFile);
@@ -30,7 +30,10 @@ export class ChromeCdpAdapter implements BrowserAdapter {
   private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private consoleEntries: ConsoleEntry[] = [];
   private networkEntries: NetworkEntry[] = [];
+  private requestMethods = new Map<string, string>(); // requestId → HTTP method
   private artifactDir = '';
+  private _exitHandler: (() => void) | null = null;
+  private _ownsProfile = true;
 
   async version(): Promise<string> {
     const chromePath = findChrome();
@@ -52,12 +55,25 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     if (!chromePath) throw new Error('Chrome not found. Install Google Chrome.');
 
     this.port = await findFreePort();
-    this.profileDir = join(tmpdir(), `bda-chrome-${Date.now()}`);
-    this.artifactDir = this.profileDir;
-    await mkdir(this.profileDir, { recursive: true });
 
+    const profile = opts?.profile ?? 'isolated';
     const viewport = opts?.viewport ?? { width: 1280, height: 720 };
     const headless = opts?.headless ?? true;
+
+    // Determine user-data-dir based on profile mode
+    if (profile === 'user') {
+      this.profileDir = getUserChromeProfileDir();
+      this._ownsProfile = false; // Do NOT delete the user's profile on close
+    } else if (profile === 'custom' && opts?.userDataDir) {
+      this.profileDir = opts.userDataDir;
+      this._ownsProfile = false;
+    } else {
+      this.profileDir = join(tmpdir(), `bda-chrome-${Date.now()}`);
+      this._ownsProfile = true;
+      await mkdir(this.profileDir, { recursive: true });
+    }
+    this.artifactDir = join(tmpdir(), `bda-artifacts-${Date.now()}`);
+    await mkdir(this.artifactDir, { recursive: true });
 
     const args = [
       `--remote-debugging-port=${this.port}`,
@@ -66,12 +82,13 @@ export class ChromeCdpAdapter implements BrowserAdapter {
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-default-apps',
-      '--disable-extensions',
-      '--disable-sync',
-      '--disable-translate',
-      '--disable-background-networking',
-      '--mute-audio',
     ];
+
+    // For isolated profiles, disable more features for speed
+    if (profile === 'isolated') {
+      args.push('--disable-extensions', '--disable-sync', '--disable-translate', '--disable-background-networking');
+    }
+    args.push('--mute-audio');
 
     if (headless) {
       args.push('--headless=new');
@@ -81,12 +98,17 @@ export class ChromeCdpAdapter implements BrowserAdapter {
 
     this.chromeProc = spawn(chromePath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-      // shell: true is required on Windows for paths with spaces (e.g. "Program Files")
       shell: platform() === 'win32',
-      // On Windows, don't create a visible console window
       ...(platform() === 'win32' ? { windowsHide: true } : {}),
     });
+
+    // Safety net: kill Chrome if our process exits unexpectedly
+    const pid = this.chromeProc.pid;
+    const profileDir = this.profileDir;
+    const exitHandler = () => { killChromeTree(pid, profileDir); };
+    process.once('exit', exitHandler);
+    // Store handler ref so close() can remove it
+    this._exitHandler = exitHandler;
 
     // Wait for CDP to be ready
     const wsUrl = await this.waitForCdp();
@@ -102,10 +124,15 @@ export class ChromeCdpAdapter implements BrowserAdapter {
           text: data.params.args?.map((a: { value?: string; description?: string }) => a.value ?? a.description ?? '').join(' ') || '',
           ts: new Date().toISOString(),
         });
+      } else if (data.method === 'Network.requestWillBeSent') {
+        // Track the real HTTP method for each request
+        this.requestMethods.set(data.params.requestId, data.params.request.method);
       } else if (data.method === 'Network.responseReceived') {
         const resp = data.params.response;
+        const method = this.requestMethods.get(data.params.requestId) || 'GET';
+        this.requestMethods.delete(data.params.requestId);
         this.networkEntries.push({
-          method: data.params.type === 'XHR' || data.params.type === 'Fetch' ? 'POST' : 'GET',
+          method,
           url: resp.url,
           status: resp.status,
         });
@@ -154,28 +181,41 @@ export class ChromeCdpAdapter implements BrowserAdapter {
         return { ok: true };
       }
 
-      // Find element via selector
-      const { root: { nodeId } } = await this.send('DOM.getDocument') as { root: { nodeId: number } };
-      const { nodeId: targetNodeId } = await this.send('DOM.querySelector', { nodeId, selector }) as { nodeId: number };
+      // Resolve element — use Runtime.evaluate with JSON-safe args to avoid injection
+      const resolveResult = await this.send('Runtime.evaluate', {
+        expression: `document.querySelector(${JSON.stringify(selector)})`,
+        returnByValue: false,
+      }) as { result: { objectId?: string; subtype?: string } };
 
-      if (!targetNodeId) return { ok: false, error: `Element not found: ${selector}` };
+      if (!resolveResult.result.objectId || resolveResult.result.subtype === 'null') {
+        return { ok: false, error: `Element not found: ${selector}` };
+      }
+      const objectId = resolveResult.result.objectId;
 
-      // Get element center for clicking
-      const { model } = await this.send('DOM.getBoxModel', { nodeId: targetNodeId }) as { model: { content: number[] } };
-      const [x1, y1, x2, y2, x3, y3, x4, y4] = model.content;
-      const cx = (x1 + x3) / 2;
-      const cy = (y1 + y3) / 2;
+      // Get element position for mouse events via callFunctionOn (injection-safe)
+      const boxResult = await this.send('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: 'function() { const r = this.getBoundingClientRect(); return { x: r.x + r.width/2, y: r.y + r.height/2 }; }',
+        returnByValue: true,
+      }) as { result: { value: { x: number; y: number } } };
+      const { x: cx, y: cy } = boxResult.result.value;
 
       switch (type) {
         case 'click':
           await this.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: cx, y: cy, button: 'left', clickCount: 1 });
           await this.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: cx, y: cy, button: 'left', clickCount: 1 });
-          await new Promise(r => setTimeout(r, 200)); // Let click propagate
+          await new Promise(r => setTimeout(r, 200));
           break;
         case 'fill':
-          // Focus, clear, type
-          await this.send('DOM.focus', { nodeId: targetNodeId });
-          await this.send('Runtime.evaluate', { expression: `document.querySelector('${selector}').value = ''` });
+          // Focus via callFunctionOn, clear and set value safely
+          await this.send('Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: 'function() { this.focus(); }',
+          });
+          await this.send('Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: `function(v) { this.value = ''; this.dispatchEvent(new Event('input', {bubbles:true})); }`,
+          });
           for (const char of (value || '')) {
             await this.send('Input.dispatchKeyEvent', { type: 'keyDown', text: char, key: char });
             await this.send('Input.dispatchKeyEvent', { type: 'keyUp', key: char });
@@ -185,7 +225,13 @@ export class ChromeCdpAdapter implements BrowserAdapter {
           await this.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: cx, y: cy });
           break;
         case 'select':
-          await this.send('Runtime.evaluate', { expression: `document.querySelector('${selector}').value = '${value}'; document.querySelector('${selector}').dispatchEvent(new Event('change'))` });
+          // Set value and dispatch change — injection-safe via callFunctionOn with argument
+          await this.send('Runtime.callFunctionOn', {
+            objectId,
+            functionDeclaration: 'function(v) { this.value = v; this.dispatchEvent(new Event("change", {bubbles:true})); }',
+            arguments: [{ value: value || '' }],
+            returnByValue: true,
+          });
           break;
       }
       return { ok: true };
@@ -225,19 +271,103 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     return { path, mediaType: 'image/png' };
   }
 
+  async navigate(url: string): Promise<void> {
+    await this.send('Page.navigate', { url });
+    // Wait for load
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      try {
+        const result = await this.send('Runtime.evaluate', {
+          expression: 'document.readyState',
+          returnByValue: true,
+        }) as { result: { value: string } };
+        if (result.result.value === 'complete' || result.result.value === 'interactive') break;
+      } catch { /* navigating */ }
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  async resize(width: number, height: number): Promise<void> {
+    await this.send('Emulation.setDeviceMetricsOverride', {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: width <= 768,
+    });
+    await new Promise(r => setTimeout(r, 300)); // Let layout reflow
+  }
+
+  async reload(): Promise<void> {
+    await this.send('Page.reload');
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      try {
+        const result = await this.send('Runtime.evaluate', {
+          expression: 'document.readyState',
+          returnByValue: true,
+        }) as { result: { value: string } };
+        if (result.result.value === 'complete') break;
+      } catch { /* reloading */ }
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  async waitFor(selector: string, timeout = 5000): Promise<boolean> {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      try {
+        const result = await this.send('Runtime.evaluate', {
+          expression: `document.querySelector(${JSON.stringify(selector)}) !== null`,
+          returnByValue: true,
+        }) as { result: { value: boolean } };
+        if (result.result.value) return true;
+      } catch { /* not ready */ }
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return false;
+  }
+
+  async cookies(): Promise<CookieEntry[]> {
+    const result = await this.send('Network.getCookies') as { cookies: CookieEntry[] };
+    return result.cookies.map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      secure: c.secure,
+      httpOnly: c.httpOnly,
+      expires: c.expires,
+    }));
+  }
+
+  async setCookie(cookie: CookieEntry): Promise<void> {
+    await this.send('Network.setCookie', cookie);
+  }
+
+  async localStorage(origin?: string): Promise<Record<string, string>> {
+    const expr = origin
+      ? `(() => { const entries = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); entries[k] = localStorage.getItem(k); } return entries; })()`
+      : `(() => { const entries = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); entries[k] = localStorage.getItem(k); } return entries; })()`;
+    const result = await this.send('Runtime.evaluate', {
+      expression: expr,
+      returnByValue: true,
+    }) as { result: { value: Record<string, string> } };
+    return result.result.value || {};
+  }
+
   async close(): Promise<void> {
+    // Remove the safety-net exit handler
+    if (this._exitHandler) {
+      process.removeListener('exit', this._exitHandler);
+      this._exitHandler = null;
+    }
     try {
       await this.send('Browser.close');
     } catch { /* already dead */ }
     this.ws?.close();
     this.ws = null;
-    if (this.chromeProc) {
-      if (platform() === 'win32') {
-        // SIGTERM doesn't work on Windows; use taskkill
-        try { execSync(`taskkill /pid ${this.chromeProc.pid} /T /F`, { stdio: 'ignore' }); } catch {}
-      } else {
-        this.chromeProc.kill();
-      }
+    if (this.chromeProc && this.chromeProc.pid) {
+      killChromeTree(this.chromeProc.pid, this.profileDir);
       this.chromeProc = null;
     }
   }
@@ -273,6 +403,35 @@ export class ChromeCdpAdapter implements BrowserAdapter {
 }
 
 // --- Helpers ---
+
+/**
+ * Kill Chrome and all its subprocesses.
+ * Uses taskkill /T on Windows (kills process tree).
+ * Uses pkill matching the user-data-dir on macOS/Linux (reliable for Chrome subprocesses).
+ * Fallback: direct SIGKILL on the main PID.
+ */
+function killChromeTree(pid: number | undefined, profileDir: string): void {
+  if (!pid) return;
+  try {
+    if (platform() === 'win32') {
+      execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
+    } else {
+      // Kill all processes using this profile directory (Chrome passes it to all subprocesses)
+      try { execSync(`pkill -f "${profileDir}"`, { stdio: 'ignore' }); } catch {}
+      // Fallback: kill main PID
+      try { process.kill(pid, 'SIGKILL'); } catch {}
+    }
+  } catch { /* already dead */ }
+}
+
+function getUserChromeProfileDir(): string {
+  const p = platform();
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  if (p === 'darwin') return join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+  if (p === 'win32') return join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'Google', 'Chrome', 'User Data');
+  // Linux
+  return join(home, '.config', 'google-chrome');
+}
 
 function findChrome(): string | null {
   const p = platform();

@@ -75,7 +75,14 @@ describe('MCP Server', () => {
       assert.ok(toolNames.includes('browser_doctor'));
       assert.ok(toolNames.includes('browser_evaluate'));
       assert.ok(toolNames.includes('browser_screenshot'));
-      assert.equal(toolNames.length, 10);
+      assert.ok(toolNames.includes('browser_navigate'));
+      assert.ok(toolNames.includes('browser_resize'));
+      assert.ok(toolNames.includes('browser_reload'));
+      assert.ok(toolNames.includes('browser_wait'));
+      assert.ok(toolNames.includes('browser_cookies'));
+      assert.ok(toolNames.includes('browser_set_cookie'));
+      assert.ok(toolNames.includes('browser_local_storage'));
+      assert.equal(toolNames.length, 17);
     } finally {
       proc.kill();
     }

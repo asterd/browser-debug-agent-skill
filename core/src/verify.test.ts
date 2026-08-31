@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { verify } from './verify.js';
-import type { BrowserAdapter, VerifyManifest, ConsoleEntry, NetworkEntry, SnapshotResult, Artifact, InteractResult } from './types.js';
+import type { BrowserAdapter, VerifyManifest, ConsoleEntry, NetworkEntry, SnapshotResult, Artifact, InteractResult, CookieEntry } from './types.js';
 
 // Minimal mock adapter for testing verify logic without a real browser.
 function createMockAdapter(opts: {
@@ -21,6 +21,13 @@ function createMockAdapter(opts: {
     network: async () => opts.network ?? [],
     screenshot: async (): Promise<Artifact> => ({ path: '/tmp/test.png', mediaType: 'image/png' }),
     close: async () => {},
+    navigate: async () => {},
+    resize: async () => {},
+    reload: async () => {},
+    waitFor: async () => true,
+    cookies: async (): Promise<CookieEntry[]> => [],
+    setCookie: async () => {},
+    localStorage: async () => ({}),
   };
 }
 

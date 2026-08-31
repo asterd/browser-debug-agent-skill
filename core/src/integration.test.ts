@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { SessionManager } from './session.js';
 import { Evidence } from './evidence.js';
 import { verify } from './verify.js';
-import type { BrowserAdapter, ConsoleEntry, NetworkEntry, SnapshotResult, Artifact, InteractResult, VerifyManifest } from './types.js';
+import type { BrowserAdapter, ConsoleEntry, NetworkEntry, SnapshotResult, Artifact, InteractResult, CookieEntry, VerifyManifest } from './types.js';
 
 /**
  * Integration test: demonstrates the full orchestrated loop
@@ -37,7 +37,7 @@ describe('Integration: full loop', () => {
         console: async (): Promise<ConsoleEntry[]> => [],
         network: async (): Promise<NetworkEntry[]> => [{ method: 'POST', url: '/api/settings', status: 200 }],
         screenshot: async (): Promise<Artifact> => ({ path: '/tmp/test.png', mediaType: 'image/png' }),
-        close: async () => {},
+        close: async () => {}, navigate: async () => {}, resize: async () => {}, reload: async () => {}, waitFor: async () => true, cookies: async (): Promise<CookieEntry[]> => [], setCookie: async () => {}, localStorage: async () => ({}),
       };
 
       // 4. Run verification
@@ -87,7 +87,7 @@ describe('Integration: full loop', () => {
         console: async (): Promise<ConsoleEntry[]> => [{ level: 'error', text: 'Failed to fetch' }],
         network: async (): Promise<NetworkEntry[]> => [{ method: 'POST', url: '/api/settigns', status: 404 }],
         screenshot: async (): Promise<Artifact> => ({ path: '/tmp/test.png', mediaType: 'image/png' }),
-        close: async () => {},
+        close: async () => {}, navigate: async () => {}, resize: async () => {}, reload: async () => {}, waitFor: async () => true, cookies: async (): Promise<CookieEntry[]> => [], setCookie: async () => {}, localStorage: async () => ({}),
       };
 
       const manifest: VerifyManifest = {

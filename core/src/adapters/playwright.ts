@@ -7,7 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import type {
   BrowserAdapter, OpenOpts, SnapshotResult,
   InteractAction, InteractResult, ConsoleEntry,
-  NetworkEntry, ScreenshotOpts, Artifact,
+  NetworkEntry, ScreenshotOpts, Artifact, CookieEntry,
 } from '../types.js';
 
 const execFileP = promisify(execFile);
@@ -130,6 +130,16 @@ export class PlaywrightAdapter implements BrowserAdapter {
     await this.call('screenshot', { path, fullPage: opts?.fullPage, selector: opts?.selector });
     return { path, mediaType: 'image/png' };
   }
+
+  async navigate(url: string): Promise<void> { await this.call('navigate', { url }); }
+  async resize(width: number, height: number): Promise<void> { await this.call('resize', { width, height }); }
+  async reload(): Promise<void> { await this.call('reload'); }
+  async waitFor(selector: string, timeout = 5000): Promise<boolean> {
+    try { await this.call('waitFor', { selector, timeout }); return true; } catch { return false; }
+  }
+  async cookies(): Promise<CookieEntry[]> { return await this.call('cookies') as CookieEntry[]; }
+  async setCookie(cookie: CookieEntry): Promise<void> { await this.call('setCookie', cookie); }
+  async localStorage(): Promise<Record<string, string>> { return await this.call('localStorage') as Record<string, string>; }
 
   async close(): Promise<void> {
     try {

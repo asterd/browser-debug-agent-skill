@@ -63,12 +63,23 @@ export interface BrowserAdapter {
   console(): Promise<ConsoleEntry[]>;
   network(): Promise<NetworkEntry[]>;
   screenshot(opts?: ScreenshotOpts): Promise<Artifact>;
+  navigate(url: string): Promise<void>;
+  resize(width: number, height: number): Promise<void>;
+  reload(): Promise<void>;
+  waitFor(selector: string, timeout?: number): Promise<boolean>;
+  cookies(): Promise<CookieEntry[]>;
+  setCookie(cookie: CookieEntry): Promise<void>;
+  localStorage(origin?: string): Promise<Record<string, string>>;
   close(): Promise<void>;
 }
 
 export interface OpenOpts {
   viewport?: { width: number; height: number };
   headless?: boolean;
+  /** Use the user's real Chrome profile (cookies, login, localStorage). Read-only by default. */
+  profile?: 'isolated' | 'user' | 'custom';
+  /** Custom user-data-dir path (only with profile: 'custom') */
+  userDataDir?: string;
 }
 
 export interface SnapshotResult {
@@ -106,6 +117,16 @@ export interface ScreenshotOpts {
   fullPage?: boolean;
   selector?: string;
   path?: string;
+}
+
+export interface CookieEntry {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  expires?: number;
 }
 
 // --- Verify ---

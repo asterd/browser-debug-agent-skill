@@ -30,6 +30,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Install Chromium (for headless CDP)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
       - name: Install dependencies
         working-directory: core
         run: npm ci || npm install
@@ -39,9 +43,6 @@ jobs:
       - name: Unit tests
         working-directory: core
         run: node --test dist/session.test.js dist/evidence.test.js dist/verify.test.js dist/server.test.js dist/integration.test.js dist/mcp-server.test.js
-      - name: Install Playwright Chromium
-        working-directory: core
-        run: npx playwright install chromium
       - name: E2E test (verify)
         working-directory: core
         run: sh test-e2e.sh
