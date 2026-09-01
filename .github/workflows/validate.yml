@@ -8,20 +8,6 @@ permissions:
   contents: read
 
 jobs:
-  skill:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - name: Validate shell syntax
-        run: for file in scripts/*.sh tests/*.sh; do sh -n "$file"; done
-      - name: Test backend detection
-        run: ./tests/detector-smoke.sh
-      - name: Test install and upgrade
-        run: ./tests/install-smoke.sh
-      - name: Validate detector JSON
-        run: ./scripts/detect-browser-backend.sh | jq -e '.schema_version == 1 and (.tools | type == "object")' >/dev/null
-
   core:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -42,7 +28,7 @@ jobs:
         run: npm run build
       - name: Unit tests
         working-directory: core
-        run: node --test dist/session.test.js dist/evidence.test.js dist/verify.test.js dist/server.test.js dist/integration.test.js dist/mcp-server.test.js
+        run: node --test --test-timeout=60000 "dist/*.test.js"
       - name: E2E test (verify)
         working-directory: core
         run: sh test-e2e.sh

@@ -54,3 +54,34 @@ describe('SessionManager', () => {
     assert.equal(list.length, 0);
   });
 });
+
+describe('SessionManager lifecycle reconciliation', () => {
+  test('reconcile marks sessions whose process is gone as crashed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'bda-session-'));
+    const sm = new SessionManager(dir);
+    const live = await sm.create('chrome-cdp');
+    const dead = await sm.create('chrome-cdp');
+
+    const changed = await sm.reconcile((m) => m.id === live.id);
+    assert.equal(changed, 1);
+    assert.equal((await sm.get(live.id))!.status, 'active');
+    assert.equal((await sm.get(dead.id))!.status, 'crashed');
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test('cleanupFinished removes stopped and crashed, keeps active', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'bda-session-'));
+    const sm = new SessionManager(dir);
+    const active = await sm.create('chrome-cdp');
+    const stopped = await sm.create('chrome-cdp');
+    await sm.stop(stopped.id);
+    const crashed = await sm.create('chrome-cdp');
+    await sm.update(crashed.id, { status: 'crashed' });
+
+    assert.equal(await sm.cleanupFinished(), 2);
+    assert.deepEqual((await sm.list()).map(s => s.id), [active.id]);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+});
