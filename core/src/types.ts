@@ -69,7 +69,7 @@ export interface BrowserAdapter {
   waitFor(selector: string, timeout?: number): Promise<boolean>;
   cookies(): Promise<CookieEntry[]>;
   setCookie(cookie: CookieEntry): Promise<void>;
-  localStorage(origin?: string): Promise<Record<string, string>>;
+  localStorage(): Promise<Record<string, string>>;
   close(): Promise<void>;
 }
 
@@ -153,10 +153,24 @@ export interface VerifyResult {
 // --- Redaction ---
 
 export const REDACT_PATTERNS = [
+  // Headers
   /[Aa]uthorization:\s*.+/g,
   /[Cc]ookie:\s*.+/g,
   /[Ss]et-[Cc]ookie:\s*.+/g,
+  // Query/body parameters
   /token=[^&\s"]+/gi,
   /api[_-]?key=[^&\s"]+/gi,
   /password=[^&\s"]+/gi,
+  /secret=[^&\s"]+/gi,
+  // Bearer tokens anywhere in a string
+  /[Bb]earer\s+[A-Za-z0-9\-._~+/]+=*/g,
+  // JWTs (header.payload.signature)
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g,
+  // Common provider key formats
+  /\bsk-[A-Za-z0-9]{16,}/g,
+  /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+  /\bxox[baprs]-[A-Za-z0-9-]{10,}/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  // JSON fields holding credentials: "access_token": "..."
+  /"(?:[a-z_]*token|password|secret|api[_-]?key)"\s*:\s*"[^"]+"/gi,
 ] as const;

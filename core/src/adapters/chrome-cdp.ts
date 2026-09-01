@@ -20,6 +20,15 @@ import type {
 
 const execFileP = promisify(execFile);
 
+/** CDP round-trip timeout. Override with BDA_CDP_TIMEOUT_MS. */
+const CDP_TIMEOUT_MS = Number(process.env.BDA_CDP_TIMEOUT_MS) || 10_000;
+/** How long to wait for the accessibility tree to be populated. */
+const AX_TREE_TIMEOUT_MS = 3_000;
+/** How long to wait for page load / navigation. */
+const LOAD_TIMEOUT_MS = 10_000;
+/** Keep the newest N entries; a long session must not grow without bound. */
+const MAX_BUFFERED_ENTRIES = 1_000;
+
 export class ChromeCdpAdapter implements BrowserAdapter {
   readonly name = 'chrome-cdp';
   private chromeProc: ChildProcess | null = null;
@@ -90,6 +99,11 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     }
     args.push('--mute-audio');
 
+    // Chrome's sandbox cannot start as root in most CI containers.
+    if (process.env.CI || process.env.BDA_NO_SANDBOX) {
+      args.push('--no-sandbox', '--disable-dev-shm-usage');
+    }
+
     if (headless) {
       args.push('--headless=new');
     }
@@ -105,13 +119,28 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     // Safety net: kill Chrome if our process exits unexpectedly
     const pid = this.chromeProc.pid;
     const profileDir = this.profileDir;
-    const exitHandler = () => { killChromeTree(pid, profileDir); };
+    const ownsProfile = this._ownsProfile;
+    const exitHandler = () => { killChromeTree(pid, profileDir, ownsProfile); };
     process.once('exit', exitHandler);
     // Store handler ref so close() can remove it
     this._exitHandler = exitHandler;
 
     // Wait for CDP to be ready
-    const wsUrl = await this.waitForCdp();
+    let wsUrl: string;
+    try {
+      wsUrl = await this.waitForCdp();
+    } catch (err) {
+      // The most common cause with profile:'user' is that Chrome is already
+      // running against that profile and refuses a second instance.
+      if (!this._ownsProfile) {
+        throw new Error(
+          `Chrome did not expose a debugging port for profile ${this.profileDir}.\n` +
+          'This usually means Chrome is already running with that profile. ' +
+          'Quit Chrome and retry, or use profile:"isolated".'
+        );
+      }
+      throw err;
+    }
     this.ws = new WebSocket(wsUrl);
     await this.ws.connect();
 
@@ -119,7 +148,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     this.ws.onMessage((msg) => {
       const data = JSON.parse(msg);
       if (data.method === 'Runtime.consoleAPICalled') {
-        this.consoleEntries.push({
+        pushCapped(this.consoleEntries, {
           level: data.params.type === 'error' ? 'error' : data.params.type === 'warning' ? 'warn' : 'log',
           text: data.params.args?.map((a: { value?: string; description?: string }) => a.value ?? a.description ?? '').join(' ') || '',
           ts: new Date().toISOString(),
@@ -131,7 +160,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
         const resp = data.params.response;
         const method = this.requestMethods.get(data.params.requestId) || 'GET';
         this.requestMethods.delete(data.params.requestId);
-        this.networkEntries.push({
+        pushCapped(this.networkEntries, {
           method,
           url: resp.url,
           status: resp.status,
@@ -151,7 +180,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     await this.send('DOM.enable');
 
     // Wait for page to be ready (poll document.readyState)
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + LOAD_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         const result = await this.send('Runtime.evaluate', {
@@ -165,10 +194,16 @@ export class ChromeCdpAdapter implements BrowserAdapter {
   }
 
   async snapshot(): Promise<SnapshotResult> {
-    // Get the accessibility tree via CDP
-    const { nodes } = await this.send('Accessibility.getFullAXTree') as { nodes: AXNode[] };
-    const tree = formatAXTree(nodes);
-    return { tree, refs: {} };
+    // Chrome can return a stub AX tree (root only) if we ask before it is populated.
+    // Poll until real nodes appear, otherwise assertions fail intermittently.
+    const deadline = Date.now() + AX_TREE_TIMEOUT_MS;
+    let nodes: AXNode[] = [];
+    while (Date.now() < deadline) {
+      ({ nodes } = await this.send('Accessibility.getFullAXTree') as { nodes: AXNode[] });
+      if (nodes.filter(n => !n.ignored).length > 1) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return { tree: formatAXTree(nodes), refs: {} };
   }
 
   async interact(action: InteractAction): Promise<InteractResult> {
@@ -249,15 +284,12 @@ export class ChromeCdpAdapter implements BrowserAdapter {
   }
 
   async console(): Promise<ConsoleEntry[]> {
-    const entries = [...this.consoleEntries];
-    this.consoleEntries = [];
-    return entries;
+    // Non-destructive: reading twice must return the same entries.
+    return [...this.consoleEntries];
   }
 
   async network(): Promise<NetworkEntry[]> {
-    const entries = [...this.networkEntries];
-    this.networkEntries = [];
-    return entries;
+    return [...this.networkEntries];
   }
 
   async screenshot(opts?: ScreenshotOpts): Promise<Artifact> {
@@ -274,7 +306,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
   async navigate(url: string): Promise<void> {
     await this.send('Page.navigate', { url });
     // Wait for load
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + LOAD_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         const result = await this.send('Runtime.evaluate', {
@@ -299,7 +331,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
 
   async reload(): Promise<void> {
     await this.send('Page.reload');
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + LOAD_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         const result = await this.send('Runtime.evaluate', {
@@ -344,10 +376,10 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     await this.send('Network.setCookie', cookie);
   }
 
-  async localStorage(origin?: string): Promise<Record<string, string>> {
-    const expr = origin
-      ? `(() => { const entries = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); entries[k] = localStorage.getItem(k); } return entries; })()`
-      : `(() => { const entries = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); entries[k] = localStorage.getItem(k); } return entries; })()`;
+  async localStorage(): Promise<Record<string, string>> {
+    // localStorage is per-origin and we only ever have one page open, so this
+    // reads whatever origin the page is currently on.
+    const expr = `(() => { const entries = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); entries[k] = localStorage.getItem(k); } return entries; })()`;
     const result = await this.send('Runtime.evaluate', {
       expression: expr,
       returnByValue: true,
@@ -367,7 +399,7 @@ export class ChromeCdpAdapter implements BrowserAdapter {
     this.ws?.close();
     this.ws = null;
     if (this.chromeProc && this.chromeProc.pid) {
-      killChromeTree(this.chromeProc.pid, this.profileDir);
+      killChromeTree(this.chromeProc.pid, this.profileDir, this._ownsProfile);
       this.chromeProc = null;
     }
   }
@@ -382,12 +414,12 @@ export class ChromeCdpAdapter implements BrowserAdapter {
           this.pending.delete(id);
           reject(new Error(`CDP timeout: ${method}`));
         }
-      }, 10000);
+      }, CDP_TIMEOUT_MS);
     });
   }
 
   private async waitForCdp(): Promise<string> {
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + LOAD_TIMEOUT_MS;
     while (Date.now() < deadline) {
       try {
         // Get the page target (not the browser target)
@@ -404,24 +436,40 @@ export class ChromeCdpAdapter implements BrowserAdapter {
 
 // --- Helpers ---
 
+function pushCapped<T>(buf: T[], entry: T): void {
+  buf.push(entry);
+  if (buf.length > MAX_BUFFERED_ENTRIES) buf.shift();
+}
+
 /**
  * Kill Chrome and all its subprocesses.
  * Uses taskkill /T on Windows (kills process tree).
  * Uses pkill matching the user-data-dir on macOS/Linux (reliable for Chrome subprocesses).
  * Fallback: direct SIGKILL on the main PID.
  */
-function killChromeTree(pid: number | undefined, profileDir: string): void {
+function killChromeTree(pid: number | undefined, profileDir: string, ownsProfile: boolean): void {
   if (!pid) return;
   try {
     if (platform() === 'win32') {
       execSync(`taskkill /pid ${pid} /T /F`, { stdio: 'ignore' });
     } else {
-      // Kill all processes using this profile directory (Chrome passes it to all subprocesses)
-      try { execSync(`pkill -f "${profileDir}"`, { stdio: 'ignore' }); } catch {}
+      // pkill -f matches every process whose command line contains the profile dir.
+      // For the user's real profile that pattern also matches THEIR open Chrome windows,
+      // so only do this for isolated profiles we created ourselves.
+      if (ownsProfile && isBdaProfileDir(profileDir)) {
+        try { execSync(`pkill -f "${profileDir}"`, { stdio: 'ignore' }); } catch {}
+      }
       // Fallback: kill main PID
       try { process.kill(pid, 'SIGKILL'); } catch {}
     }
   } catch { /* already dead */ }
+}
+
+/** True only for the temp profile dirs this tool creates (tmpdir()/bda-chrome-*). */
+export function isBdaProfileDir(dir: string): boolean {
+  if (!dir) return false;
+  const base = join(tmpdir(), 'bda-chrome-');
+  return dir.startsWith(base) && dir.length > base.length;
 }
 
 function getUserChromeProfileDir(): string {
@@ -510,6 +558,7 @@ async function findFreePort(): Promise<number> {
 
 interface AXNode {
   nodeId: string;
+  ignored?: boolean;
   role?: { value: string };
   name?: { value: string };
   children?: string[];

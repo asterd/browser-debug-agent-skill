@@ -28,8 +28,10 @@ sed "s/{{PORT}}/$PORT/" "$FIXTURE_DIR/verify-fixed.json" > "$TMPDIR_E2E/manifest
 
 # 3. Run bda verify (from a dir where playwright is resolvable)
 cd "$SCRIPT_DIR"
-TMPDIR=/tmp node "$SCRIPT_DIR/dist/cli.js" verify "$TMPDIR_E2E/manifest.json"
-EXIT_CODE=$?
+# set -e is on: without `|| EXIT_CODE=$?` a failing verify aborts the script
+# before the check below, and the suite reports success on a red run.
+EXIT_CODE=0
+TMPDIR=/tmp node "$SCRIPT_DIR/dist/cli.js" verify "$TMPDIR_E2E/manifest.json" || EXIT_CODE=$?
 
 if [ "$EXIT_CODE" -eq 0 ]; then
   echo ""

@@ -70,8 +70,9 @@ cat > "$TMPDIR_E2E/manifest-fixed.json" <<EOF
 }
 EOF
 
-TMPDIR=/tmp node dist/cli.js verify "$TMPDIR_E2E/manifest-fixed.json" 2>&1
-VERIFY_EXIT=$?
+# set -e is on: capture the status inline, or a failure aborts before the check.
+VERIFY_EXIT=0
+TMPDIR=/tmp node dist/cli.js verify "$TMPDIR_E2E/manifest-fixed.json" 2>&1 || VERIFY_EXIT=$?
 if [ "$VERIFY_EXIT" -ne 0 ]; then
   echo "FAIL: fixed fixture should have passed (exit $VERIFY_EXIT)"
   exit 1

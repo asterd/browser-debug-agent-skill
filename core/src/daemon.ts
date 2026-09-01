@@ -5,12 +5,14 @@
  */
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { writeFile, unlink, mkdir } from 'node:fs/promises';
 import { tmpdir, platform } from 'node:os';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { BackendName } from './adapters/factory.js';
 
+const __dirnameDaemon = dirname(fileURLToPath(import.meta.url));
 const SOCKET_DIR = join(tmpdir(), 'bda-daemon');
 const DAEMON_TIMEOUT = 10 * 60 * 1000; // 10 min inactivity → auto-shutdown
 
@@ -168,6 +170,9 @@ server.listen('${safeSock}', () => { process.stdout.write('READY\\n'); });
 }
 
 function chromeCdpDaemonScript(sockPath: string, cleanupFiles: string[]): string {
+  // Import the real WebSocket client instead of re-implementing it inline.
+  // The previous inlined copy corrupted frames >64KB and mis-parsed opcodes.
+  const wsModuleUrl = pathToFileURL(join(__dirnameDaemon, 'adapters', 'ws-minimal.js')).href;
   return `
 import { spawn, execSync } from 'child_process';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
@@ -176,28 +181,7 @@ import { join } from 'path';
 import { createConnection } from 'net';
 import { randomBytes, createHash } from 'crypto';
 
-// --- Minimal WebSocket (same as ws-minimal.ts, inlined for standalone daemon) ---
-class WS {
-  constructor(url) { this.url = url; this.socket = null; this.handlers = []; this.buf = Buffer.alloc(0); }
-  async connect() {
-    const u = new URL(this.url);
-    return new Promise((res, rej) => {
-      this.socket = createConnection({ host: u.hostname, port: parseInt(u.port||'80') }, () => {
-        const key = randomBytes(16).toString('base64');
-        this.socket.write('GET '+u.pathname+u.search+' HTTP/1.1\\r\\nHost: '+u.hostname+':'+u.port+'\\r\\nUpgrade: websocket\\r\\nConnection: Upgrade\\r\\nSec-WebSocket-Key: '+key+'\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n');
-        const onD = (c) => { this.buf = Buffer.concat([this.buf,c]); const i=this.buf.indexOf('\\r\\n\\r\\n'); if(i!==-1){if(!this.buf.subarray(0,i).toString().includes('101')){rej(new Error('WS upgrade fail'));return}this.buf=this.buf.subarray(i+4);this.socket.off('data',onD);this.socket.on('data',(d)=>this._raw(d));if(this.buf.length>0)this._frames();res();}};
-        this.socket.on('data', onD);
-      });
-      this.socket.on('error', rej);
-      setTimeout(()=>rej(new Error('WS timeout')), 5000);
-    });
-  }
-  send(d) { const p=Buffer.from(d,'utf8'); const m=randomBytes(4); let h; if(p.length<126){h=Buffer.alloc(6);h[0]=0x81;h[1]=0x80|p.length;m.copy(h,2);}else{h=Buffer.alloc(8);h[0]=0x81;h[1]=0x80|126;h.writeUInt16BE(p.length,2);m.copy(h,4);} const mp=Buffer.from(p);for(let i=0;i<mp.length;i++)mp[i]^=m[i%4]; this.socket.write(Buffer.concat([h,mp])); }
-  onMsg(fn) { this.handlers.push(fn); }
-  close() { this.socket?.end(); this.socket=null; }
-  _raw(c) { this.buf=Buffer.concat([this.buf,c]); this._frames(); }
-  _frames() { while(this.buf.length>=2){let pl=this.buf[1]&0x7f,o=2;if(pl===126){if(this.buf.length<4)return;pl=this.buf.readUInt16BE(2);o=4;}else if(pl===127){if(this.buf.length<10)return;pl=Number(this.buf.readBigUInt64BE(2));o=10;}if(this.buf[1]&0x80)o+=4;if(this.buf.length<o+pl)return;let p=this.buf.subarray(o,o+pl);this.buf=this.buf.subarray(o+pl);const op=this.buf.length>=0?this.buf[0]&0x0f:0;if((this.buf[-pl-o]||0x81)&0x0f===1){/* always treat as text */}const txt=p.toString('utf8');for(const h of this.handlers)h(txt);}}
-}
+const { WebSocket: WS } = await import('${wsModuleUrl}');
 
 // --- Chrome finder ---
 function findChrome() {
@@ -215,9 +199,12 @@ function findChrome() {
 const consoleEntries = [];
 const networkEntries = [];
 const requestMethods = new Map();
+const MAX_BUFFERED = 1000;
+function pushCapped(buf, e) { buf.push(e); if (buf.length > MAX_BUFFERED) buf.shift(); }
 let ws = null;
 let chromePid = null;
 let profileDir = '';
+let ownsProfile = true;
 let msgId = 0;
 const pending = new Map();
 
@@ -235,7 +222,13 @@ async function closeBrowser() {
   ws?.close(); ws=null;
   if (chromePid) {
     if (platform()==='win32') { try{execSync('taskkill /pid '+chromePid+' /T /F',{stdio:'ignore'});}catch{} }
-    else { try{execSync('pkill -f "'+profileDir+'"',{stdio:'ignore'});}catch{} try{process.kill(chromePid,'SIGKILL');}catch{} }
+    else {
+      // pkill -f on the user's real profile would kill THEIR Chrome windows too.
+      if (ownsProfile && profileDir.startsWith(join(tmpdir(),'bda-chrome-'))) {
+        try{execSync('pkill -f "'+profileDir+'"',{stdio:'ignore'});}catch{}
+      }
+      try{process.kill(chromePid,'SIGKILL');}catch{}
+    }
     chromePid=null;
   }
 }
@@ -248,9 +241,24 @@ async function handle(method, params) {
       if(!chrome) throw new Error('Chrome not found');
       const net = await import('net');
       const port = await new Promise((res,rej)=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const a=s.address();s.close(()=>res(a.port));});});
-      profileDir = join(tmpdir(), 'bda-chrome-'+Date.now());
-      mkdirSync(profileDir, {recursive:true});
-      const args = ['--remote-debugging-port='+port,'--user-data-dir='+profileDir,'--window-size='+(params.viewport?.width||1280)+','+(params.viewport?.height||720),'--no-first-run','--no-default-browser-check','--disable-default-apps','--disable-extensions','--disable-sync','--disable-translate','--mute-audio'];
+      const profileMode = params.profile || 'isolated';
+      if (profileMode === 'user') {
+        const home = process.env.HOME || process.env.USERPROFILE || '';
+        profileDir = platform()==='darwin' ? join(home,'Library','Application Support','Google','Chrome')
+          : platform()==='win32' ? join(process.env.LOCALAPPDATA || join(home,'AppData','Local'),'Google','Chrome','User Data')
+          : join(home,'.config','google-chrome');
+        ownsProfile = false;
+      } else if (profileMode === 'custom' && params.userDataDir) {
+        profileDir = params.userDataDir;
+        ownsProfile = false;
+      } else {
+        profileDir = join(tmpdir(), 'bda-chrome-'+Date.now());
+        ownsProfile = true;
+        mkdirSync(profileDir, {recursive:true});
+      }
+      const args = ['--remote-debugging-port='+port,'--user-data-dir='+profileDir,'--window-size='+(params.viewport?.width||1280)+','+(params.viewport?.height||720),'--no-first-run','--no-default-browser-check','--disable-default-apps','--mute-audio'];
+      if(ownsProfile) args.push('--disable-extensions','--disable-sync','--disable-translate');
+      if(process.env.CI||process.env.BDA_NO_SANDBOX) args.push('--no-sandbox','--disable-dev-shm-usage');
       if(params.headless!==false) args.push('--headless=new');
       args.push(params.url);
       const proc = spawn(chrome, args, {stdio:['ignore','pipe','pipe'], shell:platform()==='win32', ...(platform()==='win32'?{windowsHide:true}:{})});
@@ -265,11 +273,11 @@ async function handle(method, params) {
       if(!wsUrl) throw new Error('Chrome CDP not available');
       ws = new WS(wsUrl);
       await ws.connect();
-      ws.onMsg((m)=>{
+      ws.onMessage((m)=>{
         const d=JSON.parse(m);
-        if(d.method==='Runtime.consoleAPICalled') consoleEntries.push({level:d.params.type==='error'?'error':d.params.type==='warning'?'warn':'log',text:(d.params.args||[]).map(a=>a.value??a.description??'').join(' '),ts:new Date().toISOString()});
+        if(d.method==='Runtime.consoleAPICalled') pushCapped(consoleEntries,{level:d.params.type==='error'?'error':d.params.type==='warning'?'warn':'log',text:(d.params.args||[]).map(a=>a.value??a.description??'').join(' '),ts:new Date().toISOString()});
         else if(d.method==='Network.requestWillBeSent') requestMethods.set(d.params.requestId,d.params.request.method);
-        else if(d.method==='Network.responseReceived'){const mt=requestMethods.get(d.params.requestId)||'GET';requestMethods.delete(d.params.requestId);networkEntries.push({method:mt,url:d.params.response.url,status:d.params.response.status});}
+        else if(d.method==='Network.responseReceived'){const mt=requestMethods.get(d.params.requestId)||'GET';requestMethods.delete(d.params.requestId);pushCapped(networkEntries,{method:mt,url:d.params.response.url,status:d.params.response.status});}
         else if(d.id&&pending.has(d.id)){const p=pending.get(d.id);pending.delete(d.id);if(d.error)p.reject(new Error(d.error.message));else p.resolve(d.result);}
       });
       await cdpSend('Runtime.enable');
@@ -314,8 +322,8 @@ async function handle(method, params) {
       const r = await cdpSend('Runtime.evaluate', { expression: params.expr, returnByValue: true });
       return r.result.value;
     }
-    case 'console': { const e=[...consoleEntries]; consoleEntries.length=0; return e; }
-    case 'network': { const e=[...networkEntries]; networkEntries.length=0; return e; }
+    case 'console': return [...consoleEntries];
+    case 'network': return [...networkEntries];
     case 'screenshot': {
       const r = await cdpSend('Page.captureScreenshot', { format:'png', ...(params.fullPage?{captureBeyondViewport:true}:{}) });
       if(params.path){const{writeFileSync}=await import('fs');writeFileSync(params.path,Buffer.from(r.data,'base64'));}
@@ -383,8 +391,8 @@ async function handle(method, params) {
       return { ok: true };
     }
     case 'evaluate': return await page.evaluate(params.expr);
-    case 'console': { const e=[...consoleEntries]; consoleEntries.length=0; return e; }
-    case 'network': { const e=[...networkEntries]; networkEntries.length=0; return e; }
+    case 'console': return [...consoleEntries];
+    case 'network': return [...networkEntries];
     case 'screenshot': {
       const opts = { path: params.path };
       if (params.fullPage) opts.fullPage = true;

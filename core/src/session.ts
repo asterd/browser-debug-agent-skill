@@ -41,6 +41,22 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Mark sessions whose owning process is gone as crashed.
+   * Without this a killed run stays 'active' forever.
+   */
+  async reconcile(isAlive: (m: SessionManifest) => boolean): Promise<number> {
+    let changed = 0;
+    for (const m of await this.list()) {
+      if (m.status === 'active' && !isAlive(m)) {
+        m.status = 'crashed';
+        await this.save(m);
+        changed++;
+      }
+    }
+    return changed;
+  }
+
   async list(): Promise<SessionManifest[]> {
     try {
       const entries = await readdir(this.baseDir, { withFileTypes: true });
@@ -69,6 +85,18 @@ export class SessionManager {
     if (!manifest) return;
     Object.assign(manifest, patch);
     await this.save(manifest);
+  }
+
+  /** Remove every session that is no longer running. Returns how many were removed. */
+  async cleanupFinished(): Promise<number> {
+    let removed = 0;
+    for (const m of await this.list()) {
+      if (m.status === 'stopped' || m.status === 'crashed') {
+        await this.cleanup(m.id);
+        removed++;
+      }
+    }
+    return removed;
   }
 
   async cleanup(id: string): Promise<void> {

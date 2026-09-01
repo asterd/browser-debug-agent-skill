@@ -3,7 +3,7 @@
  * Only what we need for CDP: connect, send text frames, receive text frames, close.
  */
 import { createConnection, Socket } from 'node:net';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { URL } from 'node:url';
 
 export class WebSocket {
@@ -11,6 +11,7 @@ export class WebSocket {
   private url: string;
   private handlers: Array<(msg: string) => void> = [];
   private buffer = Buffer.alloc(0);
+  private fragments = Buffer.alloc(0);
 
   constructor(url: string) {
     this.url = url;
@@ -118,8 +119,13 @@ export class WebSocket {
       this.buffer = this.buffer.subarray(offset + payloadLen);
 
       const opcode = firstByte & 0x0f;
-      if (opcode === 0x01) { // text frame
-        const msg = payload.toString('utf8');
+      const fin = (firstByte & 0x80) !== 0;
+      if (opcode === 0x01 || opcode === 0x00) { // text frame, or continuation of one
+        // Chrome fragments large CDP messages: buffer until FIN, then deliver once.
+        this.fragments = opcode === 0x00 ? Buffer.concat([this.fragments, payload]) : Buffer.from(payload);
+        if (!fin) continue;
+        const msg = this.fragments.toString('utf8');
+        this.fragments = Buffer.alloc(0);
         for (const handler of this.handlers) {
           handler(msg);
         }

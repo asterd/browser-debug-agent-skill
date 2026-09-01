@@ -5,17 +5,28 @@
  * Protocol: JSON-RPC 2.0 over stdio (MCP standard transport).
  */
 import { createInterface } from 'node:readline';
+import { readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { SessionManager } from './session.js';
-import { ServerManager } from './server.js';
 import { Evidence } from './evidence.js';
 import { verify } from './verify.js';
 import { createAdapter, listBackends } from './adapters/factory.js';
 import type { BackendName } from './adapters/factory.js';
 import type { BrowserAdapter, VerifyManifest } from './types.js';
 
+/** Real package version — keep the handshake honest. */
+const VERSION: string = (() => {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+    return JSON.parse(readFileSync(pkgPath, 'utf8')).version as string;
+  } catch {
+    return '0.0.0';
+  }
+})();
+
 // State
 let sessionManager: SessionManager;
-let serverManager: ServerManager;
 let adapter: BrowserAdapter | null = null;
 let evidence: Evidence | null = null;
 let currentSessionId: string | null = null;
@@ -23,82 +34,83 @@ let currentSessionId: string | null = null;
 const TOOLS = [
   {
     name: 'browser_doctor',
-    description: 'Check available browser runtimes and environment health',
+    description: 'Environment health: runtimes available, active sessions.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'browser_open',
-    description: 'Open a URL in a browser session. Default: headless + isolated profile. Use visible:true to watch, profile:"user" for authenticated sessions.',
+    description: 'Open a URL, or re-point the live session (navigate/resize/reload). Headless + isolated by default; visible:true to watch, profile:"user" for logged-in state.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'URL to navigate to' },
-        width: { type: 'number', description: 'Viewport width (default: 1280)' },
-        height: { type: 'number', description: 'Viewport height (default: 720)' },
-        headless: { type: 'boolean', description: 'Run headless (default: true). Set false to see the browser.' },
-        visible: { type: 'boolean', description: 'Shortcut: visible=true means headless=false' },
-        profile: { type: 'string', enum: ['isolated', 'user', 'custom'], description: 'isolated (default): clean profile. user: real Chrome profile with cookies/login. custom: provide userDataDir.' },
-        userDataDir: { type: 'string', description: 'Custom Chrome user-data-dir (only with profile: custom)' },
-        backend: { type: 'string', enum: ['chrome-cdp', 'playwright'], description: 'Browser backend (default: chrome-cdp)' },
+        url: { type: 'string' },
+        width: { type: 'number', description: 'default 1280' },
+        height: { type: 'number', description: 'default 720' },
+        headless: { type: 'boolean', description: 'default true' },
+        visible: { type: 'boolean', description: 'alias for headless:false' },
+        reload: { type: 'boolean' },
+        profile: { type: 'string', enum: ['isolated', 'user', 'custom'], description: 'user = real Chrome profile (needs consent)' },
+        userDataDir: { type: 'string', description: 'with profile:custom' },
+        backend: { type: 'string', enum: ['chrome-cdp', 'playwright'] },
       },
       required: ['url'],
     },
   },
   {
     name: 'browser_snapshot',
-    description: 'Capture an accessibility snapshot of the current page',
+    description: 'Accessibility tree of the page: structure, roles and text.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'browser_interact',
-    description: 'Perform a browser interaction (click, fill, press, hover)',
+    description: 'Click, fill, press, hover or select an element.',
     inputSchema: {
       type: 'object',
       properties: {
         type: { type: 'string', enum: ['click', 'fill', 'press', 'hover', 'select'] },
-        selector: { type: 'string', description: 'CSS selector or ref' },
-        value: { type: 'string', description: 'Value for fill/select' },
-        key: { type: 'string', description: 'Key for press' },
+        selector: { type: 'string', description: 'CSS selector' },
+        value: { type: 'string', description: 'for fill/select' },
+        key: { type: 'string', description: 'for press' },
       },
       required: ['type', 'selector'],
     },
   },
   {
     name: 'browser_console',
-    description: 'Get console log entries from the current browser session',
+    description: 'Console entries since the session opened.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'browser_network',
-    description: 'Get network request/response entries from the current session',
+    description: 'Network requests with method, url and status.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'browser_screenshot',
-    description: 'Take a screenshot of the current page or a specific element',
+    description: 'Screenshot the page or one element.',
     inputSchema: {
       type: 'object',
       properties: {
-        selector: { type: 'string', description: 'Optional CSS selector to screenshot' },
-        fullPage: { type: 'boolean', description: 'Capture full page (default: false)' },
+        selector: { type: 'string' },
+        fullPage: { type: 'boolean' },
       },
       required: [],
     },
   },
   {
     name: 'browser_evaluate',
-    description: 'Evaluate a JavaScript expression in the page context',
+    description: 'Evaluate a JS expression in the page.',
     inputSchema: {
       type: 'object',
       properties: {
-        expression: { type: 'string', description: 'JS expression to evaluate' },
+        expression: { type: 'string' },
       },
       required: ['expression'],
     },
   },
   {
     name: 'browser_verify',
-    description: 'Run a set of deterministic verification assertions against the page',
+    description: 'Run deterministic assertions (console_errors, network_status, visible, js, snapshot_contains). Use this to prove a fix.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -121,78 +133,49 @@ const TOOLS = [
   },
   {
     name: 'browser_stop',
-    description: 'Close the current browser session and clean up resources',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'browser_navigate',
-    description: 'Navigate to a different URL in the current session',
-    inputSchema: {
-      type: 'object',
-      properties: { url: { type: 'string' } },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'browser_resize',
-    description: 'Resize the browser viewport (useful for responsive testing)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        width: { type: 'number', description: 'Viewport width' },
-        height: { type: 'number', description: 'Viewport height' },
-      },
-      required: ['width', 'height'],
-    },
-  },
-  {
-    name: 'browser_reload',
-    description: 'Reload the current page',
+    description: 'Close the session and clean up.',
     inputSchema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'browser_wait',
-    description: 'Wait for a CSS selector to appear in the DOM',
+    description: 'Wait for a selector to appear.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: { type: 'string' },
-        timeout: { type: 'number', description: 'Timeout in ms (default: 5000)' },
+        timeout: { type: 'number', description: 'ms, default 5000' },
       },
       required: ['selector'],
     },
   },
   {
-    name: 'browser_cookies',
-    description: 'Get all cookies for the current page (useful to inspect auth state)',
-    inputSchema: { type: 'object', properties: {}, required: [] },
-  },
-  {
-    name: 'browser_set_cookie',
-    description: 'Set a cookie (useful for injecting auth tokens)',
+    name: 'browser_state',
+    description: 'Read cookies/localStorage, or set a cookie. Credential-like values are masked unless reveal:true.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string' },
-        value: { type: 'string' },
-        domain: { type: 'string' },
-        path: { type: 'string' },
-        secure: { type: 'boolean' },
-        httpOnly: { type: 'boolean' },
+        what: { type: 'string', enum: ['cookies', 'localStorage'], description: 'default cookies' },
+        set: {
+          type: 'object',
+          description: 'set a cookie; needs name, value, domain',
+          properties: {
+            name: { type: 'string' },
+            value: { type: 'string' },
+            domain: { type: 'string' },
+            path: { type: 'string' },
+            secure: { type: 'boolean' },
+            httpOnly: { type: 'boolean' },
+          },
+        },
+        reveal: { type: 'boolean', description: 'raw values; needs user consent' },
       },
-      required: ['name', 'value', 'domain'],
+      required: [],
     },
-  },
-  {
-    name: 'browser_local_storage',
-    description: 'Get all localStorage entries for the current page',
-    inputSchema: { type: 'object', properties: {}, required: [] },
   },
 ];
 
 function init() {
   sessionManager = new SessionManager();
-  serverManager = new ServerManager();
 }
 
 async function handleToolCall(name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -209,7 +192,20 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
     }
 
     case 'browser_open': {
-      if (adapter) await adapter.close().catch(() => {});
+      // Reuse a live session for navigation/resize/reload instead of paying a
+      // browser restart (and instead of shipping three more tools).
+      if (adapter) {
+        const wantsRestart = args.headless !== undefined || args.visible !== undefined
+          || args.profile !== undefined || args.backend !== undefined;
+        if (!wantsRestart) {
+          if (args.width && args.height) await adapter.resize(args.width as number, args.height as number);
+          if (args.reload === true) await adapter.reload();
+          else if (args.url) await adapter.navigate(args.url as string);
+          await evidence!.emit('open', { url: args.url, reused: true, reload: args.reload === true });
+          return { sessionId: currentSessionId, url: args.url, reused: true };
+        }
+        await adapter.close().catch(() => {});
+      }
       const backend = (args.backend as BackendName) || 'chrome-cdp';
       const newAdapter = await createAdapter(backend);
       const session = await sessionManager.create(backend);
@@ -309,61 +305,37 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
       return results;
     }
 
-    case 'browser_navigate': {
+    case 'browser_state': {
       requireAdapter();
-      await adapter!.navigate(args.url as string);
-      await evidence!.emit('navigate', { url: args.url });
-      return { ok: true, url: args.url };
-    }
+      const reveal = args.reveal === true;
 
-    case 'browser_resize': {
-      requireAdapter();
-      await adapter!.resize(args.width as number, args.height as number);
-      await evidence!.emit('resize', { width: args.width, height: args.height });
-      return { ok: true, width: args.width, height: args.height };
-    }
+      if (args.set) {
+        const c = args.set as Record<string, unknown>;
+        if (!c.name || !c.value || !c.domain) throw new Error('set requires name, value and domain');
+        await adapter!.setCookie({
+          name: c.name as string,
+          value: c.value as string,
+          domain: c.domain as string,
+          path: (c.path as string) || '/',
+          secure: c.secure as boolean | undefined,
+          httpOnly: c.httpOnly as boolean | undefined,
+        });
+        await evidence!.emit('set_cookie', { name: c.name, domain: c.domain });
+        return { ok: true };
+      }
 
-    case 'browser_reload': {
-      requireAdapter();
-      await adapter!.reload();
-      await evidence!.emit('reload');
-      return { ok: true };
-    }
+      if (args.what === 'localStorage') {
+        const storage = await adapter!.localStorage();
+        await evidence!.emit('localStorage', { count: Object.keys(storage).length, keys: Object.keys(storage) });
+        if (reveal) return storage;
+        return Object.fromEntries(
+          Object.entries(storage).map(([k, v]) => [k, looksSecret(k) ? maskSecret(v) : v])
+        );
+      }
 
-    case 'browser_wait': {
-      requireAdapter();
-      const found = await adapter!.waitFor(args.selector as string, (args.timeout as number) || 5000);
-      await evidence!.emit('wait', { selector: args.selector, found });
-      return { found, selector: args.selector };
-    }
-
-    case 'browser_cookies': {
-      requireAdapter();
       const cookies = await adapter!.cookies();
-      await evidence!.emit('cookies', { count: cookies.length });
-      // Redact cookie values in evidence but return full cookies to agent
-      return cookies;
-    }
-
-    case 'browser_set_cookie': {
-      requireAdapter();
-      await adapter!.setCookie({
-        name: args.name as string,
-        value: args.value as string,
-        domain: args.domain as string,
-        path: (args.path as string) || '/',
-        secure: args.secure as boolean | undefined,
-        httpOnly: args.httpOnly as boolean | undefined,
-      });
-      await evidence!.emit('set_cookie', { name: args.name, domain: args.domain });
-      return { ok: true };
-    }
-
-    case 'browser_local_storage': {
-      requireAdapter();
-      const storage = await adapter!.localStorage();
-      await evidence!.emit('localStorage', { count: Object.keys(storage).length });
-      return storage;
+      await evidence!.emit('cookies', { count: cookies.length, names: cookies.map(c => c.name) });
+      return cookies.map(c => reveal ? c : { ...c, value: maskSecret(c.value) });
     }
 
     case 'browser_stop': {
@@ -384,11 +356,32 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
   }
 }
 
+/** Keep enough of a value to correlate it, never enough to replay it. */
+function maskSecret(value: string): string {
+  if (!value) return value;
+  if (value.length <= 8) return '***';
+  return `${value.slice(0, 4)}...${value.slice(-2)} (${value.length} chars, masked)`;
+}
+
+const SECRET_KEY_RE = /token|auth|session|secret|password|jwt|credential|api[_-]?key/i;
+function looksSecret(key: string): boolean {
+  return SECRET_KEY_RE.test(key);
+}
+
 function requireAdapter(): void {
   if (!adapter) throw new Error('No browser session active. Call browser_open first.');
 }
 
 // --- JSON-RPC transport ---
+
+const METHOD_NOT_FOUND = -32601;
+const INTERNAL_ERROR = -32603;
+
+class RpcError extends Error {
+  constructor(readonly code: number, message: string) {
+    super(message);
+  }
+}
 
 async function handleRequest(req: { id: unknown; method: string; params?: unknown }): Promise<unknown> {
   switch (req.method) {
@@ -396,7 +389,7 @@ async function handleRequest(req: { id: unknown; method: string; params?: unknow
       return {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'browser-debug-agent', version: '0.1.0' },
+        serverInfo: { name: 'browser-debug-agent', version: VERSION },
       };
 
     case 'tools/list':
@@ -425,8 +418,18 @@ async function handleRequest(req: { id: unknown; method: string; params?: unknow
     case 'notifications/initialized':
       return undefined; // no response needed for notifications
 
+    // Hosts routinely probe these during handshake. We expose neither, but we
+    // must answer: throwing here used to kill the server and drop every
+    // subsequent request.
+    case 'resources/list':
+      return { resources: [] };
+    case 'prompts/list':
+      return { prompts: [] };
+    case 'ping':
+      return {};
+
     default:
-      throw new Error(`Method not found: ${req.method}`);
+      throw new RpcError(METHOD_NOT_FOUND, `Method not found: ${req.method}`);
   }
 }
 
@@ -467,18 +470,18 @@ function startServer() {
 
       // Notifications (no id) don't get responses
       if (parsed.id === undefined) {
-        await handleRequest({ id: null, method: parsed.method, params: parsed.params });
+        try { await handleRequest({ id: null, method: parsed.method, params: parsed.params }); } catch { /* notifications get no response */ }
         return;
       }
 
       const req = parsed as { id: unknown; method: string; params?: unknown };
-      const result = await handleRequest(req);
-
-      const response = {
-        jsonrpc: '2.0',
-        id: req.id,
-        result,
-      };
+      let response: Record<string, unknown>;
+      try {
+        response = { jsonrpc: '2.0', id: req.id, result: await handleRequest(req) };
+      } catch (err) {
+        const code = err instanceof RpcError ? err.code : INTERNAL_ERROR;
+        response = { jsonrpc: '2.0', id: req.id, error: { code, message: String(err instanceof Error ? err.message : err) } };
+      }
       process.stdout.write(JSON.stringify(response) + '\n');
     });
   });

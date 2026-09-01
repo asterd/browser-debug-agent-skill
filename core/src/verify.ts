@@ -7,10 +7,12 @@ import type { BrowserAdapter, VerifyAssertion, VerifyManifest, VerifyResult } fr
 export async function verify(adapter: BrowserAdapter, manifest: VerifyManifest): Promise<VerifyResult[]> {
   const results: VerifyResult[] = [];
 
-  // Open the URL with the specified viewport
-  await adapter.open(manifest.url, {
-    viewport: manifest.viewport ?? { width: 1280, height: 720 },
-  });
+  const viewport = manifest.viewport ?? { width: 1280, height: 720 };
+  await adapter.open(manifest.url, { viewport });
+
+  // --window-size does not set the layout viewport in headless mode, so responsive
+  // assertions would silently run at the default size. Apply device metrics too.
+  await adapter.resize(viewport.width, viewport.height);
 
   for (const assertion of manifest.assertions) {
     const result = await runAssertion(adapter, assertion);
