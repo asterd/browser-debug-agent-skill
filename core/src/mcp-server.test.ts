@@ -75,14 +75,11 @@ describe('MCP Server', () => {
       assert.ok(toolNames.includes('browser_doctor'));
       assert.ok(toolNames.includes('browser_evaluate'));
       assert.ok(toolNames.includes('browser_screenshot'));
-      assert.ok(toolNames.includes('browser_navigate'));
-      assert.ok(toolNames.includes('browser_resize'));
-      assert.ok(toolNames.includes('browser_reload'));
       assert.ok(toolNames.includes('browser_wait'));
-      assert.ok(toolNames.includes('browser_cookies'));
-      assert.ok(toolNames.includes('browser_set_cookie'));
-      assert.ok(toolNames.includes('browser_local_storage'));
-      assert.equal(toolNames.length, 17);
+      // navigate/resize/reload fold into browser_open; the three storage tools
+      // fold into browser_state, to keep the surface inside host tool budgets.
+      assert.ok(toolNames.includes('browser_state'));
+      assert.equal(toolNames.length, 12);
     } finally {
       proc.kill();
     }

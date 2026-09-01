@@ -26,7 +26,7 @@ Drive browser-facing work to one of three exits: **VERIFIED**, **PARTIALLY VERIF
 
 When the session has MCP browser tools (navigate, click, type, screenshot, console, network, evaluate), use them as your primary execution layer. Do not write scripts. Call the tools directly following the Loop below.
 
-**Read `references/mcp-patterns.md` before your first MCP tool call.** It has the exact sequences for responsive testing, interaction, and verification. Critical: always `browser_snapshot` after `browser_resize` — refs invalidate on viewport change.
+**Read `references/mcp-patterns.md` before your first MCP tool call.** It has the exact sequences for responsive testing, interaction, and verification. Critical: always `browser_snapshot` after a viewport change (`browser_open` with width/height) — refs invalidate.
 
 ### If no MCP tools — use installed runtimes via shell
 
