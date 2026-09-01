@@ -4,7 +4,20 @@ Give your AI coding agent real browser debugging powers. Open pages, inspect the
 
 Works with **Kiro**, **Claude Code**, **Codex**, **Cursor**, **OpenCode**, and **Gemini CLI**.
 
-## Quick start (2 commands)
+## Two ways to install
+
+| | Kiro Power | npm package |
+|---|---|---|
+| **For** | Kiro users | every supported host, plus CI |
+| **Install** | Powers panel in Kiro | `npm install -g browser-debug-agent` |
+| **Tools load** | only when the conversation matches its keywords | always on |
+| **Includes the `bda` CLI** | no | yes |
+
+If you use Kiro, prefer the Power: it costs no context until you actually talk
+about a browser bug. Everywhere else — and for CI — use the npm package. Having
+both is fine; Kiro namespaces the Power's server separately.
+
+## Quick start — npm (2 commands)
 
 ```bash
 # 1. Install globally
@@ -23,6 +36,26 @@ That's it. Restart your agent and ask it to debug your frontend.
 cd your-project
 npx browser-debug-agent setup kiro
 ```
+
+### Keeping it up to date
+
+```bash
+bda update    # updates the package and refreshes every installed skill
+```
+
+## Quick start — Kiro Power
+
+The Power bundles the same MCP server and skill into one installable package
+([Agent Plugins 1.0.0](https://agent-plugins.org/)). Kiro loads it only when
+your conversation mentions browser work, so it costs nothing the rest of the time.
+
+1. In Kiro, open the **Powers** panel (Ghosty icon with the lightning bolt)
+2. Import from URL: `https://github.com/asterd/browser-debug-agent-skill`
+3. Point it at the `power/` directory
+
+You can also import `power/` as a local folder to try it before sharing.
+
+Details, and how to publish your own fork: [`power/README.md`](power/README.md).
 
 ## What happens after setup
 
@@ -178,6 +211,18 @@ Common issues:
 - **"Playwright not found"** → the playwright backend is opt-in: `npm install -D playwright && npx playwright install chromium`
 - **"No browser session"** → your agent needs to call `browser_open` before other tools
 - **MCP not connecting** → restart your AI host after running `bda setup`
+
+## What's in this repo
+
+| Path | What it is |
+|---|---|
+| `core/` | the `browser-debug-agent` npm package: MCP server, `bda` CLI, adapters |
+| `power/` | the Kiro Power (manifest + MCP config + a generated copy of the skill) |
+| `SKILL.md`, `references/` | the debugging method — the single source both paths ship |
+
+`power/skills/` is generated from `SKILL.md` and `references/` by the build, so the
+Power and the npm package can never ship different instructions. Edit the sources at
+the repo root, then run `npm run build` in `core/`.
 
 ## Development
 
