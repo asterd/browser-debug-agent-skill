@@ -69,7 +69,7 @@ async function execSafe(cmd: string, args: string[], opts?: { timeout?: number }
 const commands: Record<string, string> = {
   setup: 'Verify environment, install deps, configure skill + MCP for Kiro',
   doctor: 'Check available runtimes and environment health',
-  open: 'Open a URL in an isolated browser session',
+  open: 'Open a URL (headless+isolated by default; --visible, --profile user)',
   snapshot: 'Capture accessibility snapshot of current page',
   interact: 'Perform an interaction (click, fill, press)',
   evaluate: 'Evaluate JS in the page context',
@@ -80,6 +80,7 @@ const commands: Record<string, string> = {
   stop: 'Stop the current browser session',
   session: 'Manage debug sessions (list, stop, clean)',
   server: 'Discover, start, or attach to a dev server',
+  update: 'Update bda to the latest version and refresh installed skills',
 };
 
 async function main() {
@@ -101,6 +102,7 @@ async function main() {
     stop: cmdStop,
     session: cmdSession,
     server: cmdServer,
+    update: cmdUpdate,
   };
 
   const handler = handlers[cmd];
@@ -124,7 +126,7 @@ function printHelp() {
   console.log('  bda setup kiro         # configure for Kiro (auto-detects if .kiro/ exists)');
   console.log('  bda setup claude-code  # configure for Claude Code');
   console.log('  bda setup codex        # configure for Codex');
-  console.log('  bda open <url>         # open browser session');
+  console.log('  bda open <url>         # headless; add --visible to watch it');
   console.log('  bda snapshot           # see page structure');
   console.log('  bda interact click <selector>');
   console.log('  bda verify <file.json> # deterministic assertions');
@@ -206,11 +208,6 @@ const HOSTS: Record<string, HostConfig> = {
   },
 };
 
-function detectHost(): string | null {
-  // Sync detection not available in ESM — use detectHostAsync instead
-  return null;
-}
-
 async function detectHostAsync(): Promise<string | null> {
   const priorities: [string, string][] = [
     ['.kiro', 'kiro'],
@@ -226,10 +223,9 @@ async function detectHostAsync(): Promise<string | null> {
   return null;
 }
 
-function parseHostArg(): { host: string; scope: 'project' | 'global'; force: boolean } {
+function parseHostArg(): { host: string; scope: 'project' | 'global' } {
   let host: string | null = null;
   let scope: 'project' | 'global' = 'project';
-  let force = false;
 
   for (let i = 3; i < process.argv.length; i++) {
     const arg = process.argv[i];
@@ -238,7 +234,7 @@ function parseHostArg(): { host: string; scope: 'project' | 'global'; force: boo
     } else if (arg === '--global' || arg === '-g') {
       scope = 'global';
     } else if (arg === '--force' || arg === '-f' || arg === '--update') {
-      force = true;
+      // Accepted for compatibility: setup always overwrites the skill files.
     } else if (!arg.startsWith('-') && !host) {
       host = arg;
     }
@@ -250,13 +246,13 @@ function parseHostArg(): { host: string; scope: 'project' | 'global'; force: boo
     process.exit(1);
   }
 
-  return { host: host || '', scope, force };
+  return { host: host || '', scope };
 }
 
 // --------------- SETUP ---------------
 
 async function cmdSetup() {
-  let { host, scope, force } = parseHostArg();
+  let { host, scope } = parseHostArg();
 
   // If no host specified, try to auto-detect or ask
   if (!host) {
@@ -329,39 +325,12 @@ async function cmdSetup() {
   info(`${skillAction} skill in ${skillDir}...`);
   await mkdir(skillDir, { recursive: true });
 
-  // Find SKILL.md source: check multiple locations
-  const packageRoot = resolve(__dirname, '..');
-  const candidates = [
-    join(packageRoot, 'skill'),
-    resolve(packageRoot, '..'),
-    join(packageRoot, 'dist', '..', 'skill'),
-  ];
-
-  let sourceRoot = '';
-  for (const candidate of candidates) {
-    if (await exists(join(candidate, 'SKILL.md'))) {
-      sourceRoot = candidate;
-      break;
-    }
-  }
-
-  if (!sourceRoot) {
-    fail('Could not find SKILL.md. The package may be corrupted — try reinstalling.');
+  try {
+    await installSkillFiles(skillDir);
+    ok(`Skill ${skillExists ? 'updated' : 'installed'} in ${skillDir}`);
+  } catch (e) {
+    fail(`Could not install skill files: ${e}`);
     allGood = false;
-  } else {
-    try {
-      await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
-      if (await exists(join(sourceRoot, 'references'))) {
-        // Remove old references to avoid stale files
-        const refsDir = join(skillDir, 'references');
-        try { const { rm } = await import('node:fs/promises'); await rm(refsDir, { recursive: true, force: true }); } catch {}
-        await cp(join(sourceRoot, 'references'), refsDir, { recursive: true });
-      }
-      ok(`Skill ${skillExists ? 'updated' : 'installed'} in ${skillDir}`);
-    } catch (e) {
-      fail(`Could not copy skill files: ${e}`);
-      allGood = false;
-    }
   }
 
   // 6. MCP config
@@ -435,6 +404,36 @@ async function cmdSetup() {
   }
 }
 
+/**
+ * Copy SKILL.md + references from the package into an install dir.
+ * Shared by `setup` and `update` so they can never drift apart.
+ */
+async function installSkillFiles(skillDir: string): Promise<void> {
+  const packageRoot = resolve(__dirname, '..');
+  const candidates = [
+    join(packageRoot, 'skill'),
+    resolve(packageRoot, '..'),
+    join(packageRoot, 'dist', '..', 'skill'),
+  ];
+
+  let sourceRoot = '';
+  for (const candidate of candidates) {
+    if (await exists(join(candidate, 'SKILL.md'))) { sourceRoot = candidate; break; }
+  }
+  if (!sourceRoot) throw new Error('Could not find SKILL.md — the package may be corrupted.');
+
+  await mkdir(skillDir, { recursive: true });
+  await cp(join(sourceRoot, 'SKILL.md'), join(skillDir, 'SKILL.md'));
+
+  if (await exists(join(sourceRoot, 'references'))) {
+    // Remove old references so a renamed/deleted file cannot linger
+    const refsDir = join(skillDir, 'references');
+    const { rm } = await import('node:fs/promises');
+    await rm(refsDir, { recursive: true, force: true });
+    await cp(join(sourceRoot, 'references'), refsDir, { recursive: true });
+  }
+}
+
 // --------------- DOCTOR ---------------
 
 async function cmdDoctor() {
@@ -462,17 +461,18 @@ async function cmdDoctor() {
   console.log(`  Node.js:         ${process.version}`);
 
   const sm = new SessionManager();
+  await sm.reconcile(isSessionAlive);
   const sessions = await sm.list();
   const active = sessions.filter(s => s.status === 'active');
   console.log(`  Active sessions: ${active.length}`);
+  const stale = sessions.filter(s => s.status !== 'active').length;
+  if (stale > 0) console.log(`  Finished sessions: ${stale} (bda session clean)`);
 
   // Check all hosts
   console.log('\n  Host status:');
-  for (const [key, cfg] of Object.entries(HOSTS)) {
+  for (const [, cfg] of Object.entries(HOSTS)) {
     const skillOk = await exists(join(cfg.skillDir('project'), 'SKILL.md'))
       || await exists(join(cfg.skillDir('global'), 'SKILL.md'));
-    const mcpProject = await exists(cfg.mcpConfigPath('project'));
-    const mcpGlobal = await exists(cfg.mcpConfigPath('global'));
     let mcpConfigured = false;
     for (const path of [cfg.mcpConfigPath('project'), cfg.mcpConfigPath('global')]) {
       try {
@@ -507,6 +507,11 @@ import { startDaemon, sendCommand, stopDaemon, isDaemonRunning } from './daemon.
 
 let _sm: SessionManager | null = null;
 
+/** A session is only alive while its daemon is still running. */
+function isSessionAlive(m: { id: string }): boolean {
+  return isDaemonRunning(m.id);
+}
+
 async function ensureDaemon(sessionId: string): Promise<void> {
   if (!isDaemonRunning(sessionId)) {
     throw new Error('No browser daemon running. Run `bda open <url>` first.');
@@ -515,10 +520,26 @@ async function ensureDaemon(sessionId: string): Promise<void> {
 
 async function cmdOpen() {
   const url = process.argv[3];
-  if (!url) { console.error('Usage: bda open <url> [width] [height]'); process.exit(1); }
+  if (!url) {
+    console.error('Usage: bda open <url> [width] [height] [--visible] [--profile isolated|user] [--playwright]');
+    process.exit(1);
+  }
 
-  const width = parseInt(process.argv[4] || '1280');
-  const height = parseInt(process.argv[5] || '720');
+  // Positional width/height, ignoring flags
+  const positional = process.argv.slice(4).filter(a => !a.startsWith('-'));
+  const width = parseInt(positional[0] || '1280');
+  const height = parseInt(positional[1] || '720');
+
+  const visible = process.argv.includes('--visible') || process.argv.includes('--headed');
+  const profileIdx = process.argv.indexOf('--profile');
+  const profile = profileIdx !== -1 ? process.argv[profileIdx + 1] : 'isolated';
+  if (!['isolated', 'user', 'custom'].includes(profile)) {
+    console.error(`Invalid --profile: ${profile}. Use isolated, user, or custom.`);
+    process.exit(1);
+  }
+  if (profile === 'user') {
+    warn('Using your real Chrome profile. Quit Chrome first, or it will refuse to start.');
+  }
 
   _sm = new SessionManager();
 
@@ -542,12 +563,17 @@ async function cmdOpen() {
   await startDaemon(session.id, process.cwd(), backend);
 
   // Open the URL in the daemon
-  await sendCommand(session.id, 'launch', { url, viewport: { width, height }, headless: true });
+  await sendCommand(session.id, 'launch', {
+    url,
+    viewport: { width, height },
+    headless: !visible,
+    profile,
+  });
 
   const evidence = new Evidence(session.id, session.artifactDir, backend);
-  await evidence.emit('open', { url, viewport: { width, height }, backend });
+  await evidence.emit('open', { url, viewport: { width, height }, backend, mode: visible ? 'visible' : 'headless', profile });
 
-  ok(`Session ${session.id} — browser open at ${url}`);
+  ok(`Session ${session.id} — browser open at ${url} (${visible ? 'visible' : 'headless'}, ${profile} profile)`);
   info('Use: bda snapshot | bda interact | bda console | bda network | bda stop');
 }
 
@@ -753,6 +779,7 @@ async function cmdSession() {
 
   switch (sub) {
     case 'list': {
+      await sm.reconcile(isSessionAlive);
       const sessions = await sm.list();
       if (sessions.length === 0) { info('No sessions.'); return; }
       for (const s of sessions) {
@@ -768,12 +795,10 @@ async function cmdSession() {
       break;
     }
     case 'clean': {
-      const sessions = await sm.list();
-      let cleaned = 0;
-      for (const s of sessions) {
-        if (s.status === 'stopped') { await sm.cleanup(s.id); cleaned++; }
-      }
-      ok(`Cleaned ${cleaned} stopped sessions.`);
+      // Reconcile first, so sessions orphaned by a crash are also reaped.
+      await sm.reconcile(isSessionAlive);
+      const cleaned = await sm.cleanupFinished();
+      ok(`Cleaned ${cleaned} finished sessions.`);
       break;
     }
     default:
@@ -823,6 +848,49 @@ async function cmdServer() {
       console.error(`Unknown server subcommand: ${sub}. Use: discover, start, attach`);
       process.exit(1);
   }
+}
+
+// --------------- UPDATE ---------------
+
+async function cmdUpdate() {
+  console.log('Updating browser-debug-agent...\n');
+
+  const installed = await execSafe('npm', ['ls', '-g', '--depth=0', '--json', 'browser-debug-agent'], { timeout: 30000 });
+  const isGlobal = installed.ok && installed.stdout.includes('browser-debug-agent');
+
+  if (isGlobal) {
+    info('Updating global install (npm install -g browser-debug-agent@latest)...');
+    const r = await execSafe('npm', ['install', '-g', 'browser-debug-agent@latest'], { timeout: 180000 });
+    if (!r.ok) { fail('npm install failed. Run it manually: npm install -g browser-debug-agent@latest'); process.exit(1); }
+    ok('Package updated');
+  } else {
+    info('Not a global install — updating in this project (npm install browser-debug-agent@latest)...');
+    const r = await execSafe('npm', ['install', 'browser-debug-agent@latest'], { timeout: 180000 });
+    if (!r.ok) { fail('npm install failed. Run it manually: npm install browser-debug-agent@latest'); process.exit(1); }
+    ok('Package updated');
+  }
+
+  // Refresh skill files wherever they are already installed, so the docs the
+  // agent reads never lag behind the tools it can call.
+  let refreshed = 0;
+  for (const [, cfg] of Object.entries(HOSTS)) {
+    for (const scope of ['project', 'global'] as const) {
+      const dir = cfg.skillDir(scope);
+      if (await exists(join(dir, 'SKILL.md'))) {
+        try {
+          await installSkillFiles(dir);
+          ok(`Skill refreshed: ${dir}`);
+          refreshed++;
+        } catch (e) {
+          warn(`Could not refresh ${dir}: ${e}`);
+        }
+      }
+    }
+  }
+  if (refreshed === 0) info('No installed skills found. Run `bda setup <host>` to install one.');
+
+  console.log('');
+  ok('Update complete. Restart your AI host to pick up changes.');
 }
 
 async function cmdMcpServe() {

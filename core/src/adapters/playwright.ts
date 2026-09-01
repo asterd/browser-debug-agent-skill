@@ -42,13 +42,14 @@ export class PlaywrightAdapter implements BrowserAdapter {
     const viewport = opts?.viewport ?? { width: 1280, height: 720 };
     const headless = opts?.headless ?? true;
 
-    // Resolve playwright module path for the helper
-    const playwrightPath = await this.resolvePlaywright();
+    // Called for its side effect: it throws a clear error if playwright is
+    // not installed, before we spawn a helper that would fail obscurely.
+    await this.resolvePlaywright();
 
     // Write helper script in the profile dir but run it with cwd = project root
     // so that ESM module resolution finds playwright in node_modules
     const helperPath = join(this.profileDir, '_helper.mjs');
-    await writeFile(helperPath, this.helperScript(playwrightPath));
+    await writeFile(helperPath, this.helperScript());
 
     this.helperProc = spawn('node', [helperPath], {
       cwd: process.cwd(),
@@ -183,7 +184,7 @@ export class PlaywrightAdapter implements BrowserAdapter {
    * It communicates via JSON lines over stdin/stdout.
    * Uses createRequire to resolve playwright from the project's node_modules.
    */
-  private helperScript(playwrightPath: string): string {
+  private helperScript(): string {
     // Pass both the project cwd AND the package's own location for resolution
     const projectCwd = process.cwd().replace(/\\/g, '\\\\');
     // Get the package root directory (one level up from dist/adapters/)
