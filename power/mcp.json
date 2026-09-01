@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "browser-debug-agent": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "browser-debug-agent@latest", "mcp-serve"],
+      "env": {}
+    }
+  }
+}

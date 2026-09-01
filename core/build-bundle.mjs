@@ -21,6 +21,19 @@ if (existsSync(join(repoRoot, 'SKILL.md'))) {
     cpSync(join(repoRoot, 'references'), join(skillDir, 'references'), { recursive: true });
   }
   console.log('Bundled skill files into core/skill/');
+
+  // The Kiro Power ships the same skill. Generate it from the same source so
+  // the two can never drift apart.
+  const powerSkill = join(repoRoot, 'power', 'skills', 'browser-debug-agent');
+  if (existsSync(join(repoRoot, 'power'))) {
+    rmSync(powerSkill, { recursive: true, force: true });
+    mkdirSync(powerSkill, { recursive: true });
+    cpSync(join(repoRoot, 'SKILL.md'), join(powerSkill, 'SKILL.md'));
+    if (existsSync(join(repoRoot, 'references'))) {
+      cpSync(join(repoRoot, 'references'), join(powerSkill, 'references'), { recursive: true });
+    }
+    console.log('Bundled skill files into power/skills/browser-debug-agent/');
+  }
 } else if (existsSync(join(__dirname, 'SKILL.md'))) {
   cpSync(join(__dirname, 'SKILL.md'), join(skillDir, 'SKILL.md'));
   console.log('Bundled skill files into core/skill/ (from local)');
