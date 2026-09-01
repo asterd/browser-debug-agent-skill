@@ -5,15 +5,15 @@ Browser debugging orchestrator for AI coding agents. One command to set up, one 
 ## Install
 
 ```bash
-npx @browser-debug-agent/core setup kiro
-npx @browser-debug-agent/core setup claude-code
-npx @browser-debug-agent/core setup codex
+npx browser-debug-agent setup kiro
+npx browser-debug-agent setup claude-code
+npx browser-debug-agent setup codex
 ```
 
 Or install globally:
 
 ```bash
-npm install -g @browser-debug-agent/core
+npm install -g browser-debug-agent
 bda setup kiro
 ```
 
@@ -22,7 +22,7 @@ bda setup kiro
 `bda setup` verifies your environment and configures everything:
 
 - Checks Node.js >= 20
-- Installs Playwright + Chromium if missing
+- Checks for Chrome/Chromium/Edge (the default backend uses your installed browser)
 - Installs the browser-debug-agent skill for your AI host
 - Configures the MCP server so your agent gets browser tools
 - Sets up `.gitignore` and session directories
@@ -89,13 +89,15 @@ When configured, your agent gets these tools:
 
 | Tool | Description |
 |------|-------------|
-| `browser_open` | Open URL with viewport |
+| `browser_open` | Open a URL — also navigates, resizes and reloads a live session |
 | `browser_snapshot` | Accessibility snapshot |
-| `browser_interact` | Click, fill, press, hover |
+| `browser_interact` | Click, fill, press, hover, select |
 | `browser_evaluate` | Run JS in page |
 | `browser_console` | Get console entries |
 | `browser_network` | Get network entries |
 | `browser_screenshot` | Take screenshot |
+| `browser_wait` | Wait for a selector |
+| `browser_state` | Read cookies / localStorage, or set a cookie (values masked) |
 | `browser_verify` | Run assertion manifest |
 | `browser_stop` | Close session |
 | `browser_doctor` | Health check |
@@ -120,7 +122,7 @@ CLI / MCP Server
   Session Manager ──── Evidence (JSONL + redaction)
       │
       ▼
-  Browser Daemon ───── Playwright Adapter
+  Browser Daemon ───── Chrome CDP Adapter
       │
       ▼
   Chromium (headless)
@@ -137,7 +139,7 @@ CLI / MCP Server
 cd core
 npm install
 npm run build
-npm test                    # 29 unit/integration tests
+npm test                    # unit + integration tests (`npm test`)
 sh test-e2e.sh             # E2E with real browser
 sh test-e2e-repair.sh      # broken→fixed repair loop
 ```

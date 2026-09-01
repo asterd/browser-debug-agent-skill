@@ -1,6 +1,6 @@
 {
   "name": "browser-debug-agent",
-  "version": "2.0.10",
+  "version": "2.1.0",
   "description": "Browser debugging orchestrator for AI coding agents. One command to set up, one command to verify.",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc && node ./build-bundle.mjs",
     "prepublishOnly": "npm run build",
-    "test": "node --test dist/**/*.test.js",
+    "test": "node --test --test-timeout=60000 \"dist/*.test.js\"",
     "test:e2e": "sh test-e2e.sh",
     "pretest": "tsc"
   },
@@ -46,10 +46,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/browser-debug-agent-skill.git",
+    "url": "https://github.com/asterd/browser-debug-agent-skill.git",
     "directory": "core"
   },
-  "homepage": "https://github.com/anthropics/browser-debug-agent-skill#readme",
+  "homepage": "https://github.com/asterd/browser-debug-agent-skill#readme",
   "license": "MIT",
   "author": "asterd",
   "dependencies": {},

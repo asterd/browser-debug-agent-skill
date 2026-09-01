@@ -26,17 +26,20 @@ npx browser-debug-agent setup kiro
 
 ## What happens after setup
 
-Your AI agent now has 10 browser tools available via MCP:
+Your AI agent now has 12 browser tools available via MCP (~980 tokens of schema —
+deliberately compact, so it leaves room for other servers):
 
 | Tool | What it does |
 |------|--------------|
-| `browser_open` | Navigate to a URL in isolated Chromium |
+| `browser_open` | Open a URL — also navigates, resizes, and reloads a live session |
 | `browser_snapshot` | Get the accessibility tree of the page |
-| `browser_interact` | Click, fill, type, hover |
+| `browser_interact` | Click, fill, type, hover, select |
 | `browser_evaluate` | Run JS in the page context |
 | `browser_console` | Get console log entries |
 | `browser_network` | Get request/response log |
 | `browser_screenshot` | Capture page or element |
+| `browser_wait` | Wait for a selector to appear |
+| `browser_state` | Read cookies / localStorage, or set a cookie (values masked) |
 | `browser_verify` | Run deterministic assertions |
 | `browser_stop` | Close the browser session |
 | `browser_doctor` | Health check |
@@ -75,7 +78,19 @@ bda stop                           # close
 
 bda doctor                         # check environment
 bda server discover                # detect dev server command
+bda update                         # update bda and refresh installed skills
 ```
+
+### Watching the browser, and authenticated sessions
+
+```bash
+bda open http://localhost:3000 --visible            # show the browser instead of headless
+bda open https://app.internal --profile user        # reuse your real Chrome profile (quit Chrome first)
+```
+
+`--profile user` reuses your logged-in cookies and localStorage. bda never deletes that
+profile and never process-kills by profile path when you use it. Treat it as a privileged
+action: cookie and localStorage values stay masked unless you explicitly ask to reveal them.
 
 ## Verify manifests
 
@@ -100,8 +115,20 @@ bda verify verify.json   # exits 0 on pass, 1 on fail
 ## Requirements
 
 - **Node.js >= 20**
-- **Playwright** (installed automatically by `bda setup`)
+- **Google Chrome, Chromium, or Edge** — the default `chrome-cdp` backend drives your installed browser and needs no extra downloads. `bda setup` checks for it and tells you if it is missing.
+- **Playwright** (optional) — only for `--backend playwright`. Install it yourself: `npm install -D playwright && npx playwright install chromium`.
 - One of the supported AI hosts
+
+## Using it in CI
+
+`bda verify` is headless by default and exits 0 on pass, 1 on fail — usable as a pipeline gate:
+
+```yaml
+- run: npm install -g browser-debug-agent
+- run: npx bda verify verify.json    # CI=true adds --no-sandbox automatically
+```
+
+Set `BDA_NO_SANDBOX=1` if you run in a container without the `CI` variable set.
 
 ## How it works
 
@@ -112,13 +139,13 @@ Your AI agent (Kiro, Claude Code, etc.)
     MCP Server (browser-debug-agent)
          │
          ▼
-    Browser Daemon (persistent Chromium via Playwright)
+    Browser Daemon (persistent Chrome via CDP — Playwright optional)
          │
          ▼
     Your app (localhost)
 ```
 
-- **Browser Daemon**: a persistent Chromium process that survives between tool calls. No cold start on every command.
+- **Browser Daemon**: a persistent Chrome process (driven over CDP) that survives between tool calls. No cold start on every command.
 - **Evidence JSONL**: every action is logged with automatic redaction of cookies, tokens, and credentials.
 - **Session ownership**: only stops processes it started. Your dev server is safe.
 - **Deterministic verify**: assertions produce pass/fail, no LLM judgment involved.
@@ -147,18 +174,19 @@ bda doctor   # shows runtime versions, host status, active sessions
 ```
 
 Common issues:
-- **"Playwright not found"** → `bda setup` installs it automatically. If it fails: `npx playwright install chromium`
+- **"Chrome not found"** → install Google Chrome, or point bda at another Chromium build
+- **"Playwright not found"** → the playwright backend is opt-in: `npm install -D playwright && npx playwright install chromium`
 - **"No browser session"** → your agent needs to call `browser_open` before other tools
 - **MCP not connecting** → restart your AI host after running `bda setup`
 
 ## Development
 
 ```bash
-git clone https://github.com/anthropics/browser-debug-agent-skill.git
+git clone https://github.com/asterd/browser-debug-agent-skill.git
 cd browser-debug-agent-skill/core
 npm install
 npm run build
-npm test              # 29 unit tests
+npm test              # unit + integration tests
 sh test-e2e.sh        # real browser E2E
 sh test-e2e-repair.sh # repair loop test
 ```

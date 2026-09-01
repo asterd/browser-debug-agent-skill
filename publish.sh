@@ -8,6 +8,7 @@ set -eu
 #   sh publish.sh              # bump patch, publish
 #   sh publish.sh minor        # bump minor, publish
 #   sh publish.sh major        # bump major, publish
+#   sh publish.sh --no-bump    # publish the version already in package.json
 #   sh publish.sh --dry        # dry run (no publish, no push)
 
 BUMP="patch"
@@ -16,6 +17,7 @@ DRY_RUN=false
 for arg in "$@"; do
   case "$arg" in
     --dry|--dry-run) DRY_RUN=true ;;
+    --no-bump) BUMP="none" ;;
     patch|minor|major) BUMP="$arg" ;;
   esac
 done
@@ -46,10 +48,26 @@ cd "$CORE_DIR"
 OLD_VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
 info "Current version: $OLD_VERSION"
 
-# Bump in package.json (no git tag — we'll tag after tests pass)
-npm version "$BUMP" --no-git-tag-version >/dev/null
-VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
-ok "Bumped to $VERSION ($BUMP)"
+if [ "$BUMP" = none ]; then
+  VERSION="$OLD_VERSION"
+  ok "Publishing $VERSION as-is (--no-bump)"
+else
+  # Bump in package.json (no git tag — we'll tag after tests pass)
+  npm version "$BUMP" --no-git-tag-version >/dev/null
+  VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+  ok "Bumped to $VERSION ($BUMP)"
+fi
+
+# The Kiro Power ships the same version; a test enforces this, fail early here.
+POWER_VERSION=$(node -e "process.stdout.write(require('$REPO_ROOT/power/plugin.json').version)")
+if [ "$POWER_VERSION" != "$VERSION" ]; then
+  node -e "
+    const fs=require('fs'), p='$REPO_ROOT/power/plugin.json';
+    const j=JSON.parse(fs.readFileSync(p,'utf8')); j.version='$VERSION';
+    fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n');
+  "
+  ok "Synced power/plugin.json to $VERSION"
+fi
 
 # --- Build ---
 info "Building..."
@@ -59,8 +77,8 @@ ok "Build complete"
 
 # --- Test ---
 info "Running unit tests..."
-TMPDIR=/tmp node --test dist/session.test.js dist/evidence.test.js dist/verify.test.js dist/server.test.js dist/integration.test.js dist/mcp-server.test.js
-ok "Unit tests pass (29/29)"
+TMPDIR=/tmp node --test --test-timeout=60000 "dist/*.test.js"
+ok "Unit tests pass"
 
 info "Running E2E..."
 TMPDIR=/tmp sh test-e2e.sh
@@ -71,8 +89,13 @@ ok "E2E repair loop pass"
 
 # --- Commit + push the version bump ---
 cd "$REPO_ROOT"
-git add -A
-git commit -m "release: v$VERSION"
+# Stage only release artifacts — never sweep in unrelated working-tree changes.
+git add core/package.json core/package-lock.json power/plugin.json power/skills
+if git diff --cached --quiet; then
+  info "Nothing to commit (version unchanged)"
+else
+  git commit -m "release: v$VERSION"
+fi
 
 if [ "$DRY_RUN" = true ]; then
   info "[DRY RUN] Would push commit and tag v$VERSION"
@@ -98,8 +121,12 @@ TAG="v$VERSION"
 if [ "$DRY_RUN" = true ]; then
   info "[DRY RUN] Would create tag $TAG"
 else
-  git tag -a "$TAG" -m "Release $VERSION"
-  git push origin "$TAG"
+  if git rev-parse "$TAG" >/dev/null 2>&1; then
+    info "Tag $TAG already exists — skipping"
+  else
+    git tag -a "$TAG" -m "Release $VERSION"
+    git push origin "$TAG"
+  fi
   ok "Pushed tag $TAG"
 fi
 

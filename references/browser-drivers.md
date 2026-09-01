@@ -22,7 +22,7 @@ When a companion skill is present, the agent should use it for runtime-specific 
 
 ## Capability probe
 
-Use lightweight `command -v` checks during tasks. The full `scripts/detect-browser-backend.sh` is for install-time discovery only (use `--quick` to skip filesystem probes).
+Use lightweight `command -v` checks during tasks. `bda doctor` reports which backends are available and whether the host is configured.
 
 ## Prefer existing project tooling
 
