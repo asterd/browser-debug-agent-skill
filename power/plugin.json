@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "browser-debug-agent",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Debug, repair and verify browser-facing apps through an evidence-led loop. Headless by default (CI-ready), visible on request, works with authenticated sessions. Drives your installed Chrome via CDP with no extra downloads.",
   "author": {
     "name": "asterd",

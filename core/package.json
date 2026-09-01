@@ -1,6 +1,6 @@
 {
   "name": "browser-debug-agent",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Browser debugging orchestrator for AI coding agents. One command to set up, one command to verify.",
   "type": "module",
   "main": "./dist/index.js",
