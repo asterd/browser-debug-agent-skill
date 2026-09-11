@@ -6,11 +6,8 @@ Exact sequences for browser tasks using `browser-debug-agent` MCP tools. Follow 
 
 | Tool | Purpose |
 |------|---------|
-| `browser_open` | Open URL (headless default; `visible:true` to watch; `profile:"user"` for auth) |
+| `browser_open` | Open a URL, or re-point the live session: navigate (new `url`), resize (`width`/`height`), reload (`reload:true`). Headless + isolated by default; `visible:true` to watch, `profile:"user"` for logged-in state |
 | `browser_stop` | Close session, kill browser, clean up |
-| `browser_navigate` | Go to a different URL |
-| `browser_reload` | Reload current page |
-| `browser_resize` | Change viewport (responsive testing) |
 | `browser_wait` | Wait for a selector to appear |
 | `browser_snapshot` | Accessibility tree (structure + text + roles) |
 | `browser_interact` | Click, fill, press, hover, select |
@@ -18,9 +15,7 @@ Exact sequences for browser tasks using `browser-debug-agent` MCP tools. Follow 
 | `browser_console` | Console log entries (errors, warnings) |
 | `browser_network` | HTTP requests/responses with real method |
 | `browser_screenshot` | PNG screenshot (inline image, ~15–25k tokens — expensive) |
-| `browser_cookies` | Read all cookies |
-| `browser_set_cookie` | Inject a cookie (auth token, session) |
-| `browser_local_storage` | Read localStorage entries |
+| `browser_state` | Read cookies / localStorage, or set a cookie (`set: {...}`) |
 | `browser_verify` | Run deterministic assertion manifest |
 | `browser_doctor` | Health check + available backends |
 
@@ -49,7 +44,7 @@ A screenshot costs ~15–25k tokens. A DOM/console/network read costs a few hund
 
 - **Text first.** Reach for console/network/snapshot/evaluate before ever considering a screenshot.
 - **Snapshot before interact**: `browser_snapshot` to find selectors before click/fill.
-- **Snapshot/evaluate after resize or navigate**: layout changed.
+- **Re-snapshot / re-evaluate after a resize, navigate, or reload**: layout changed.
 - **Console after actions**: errors appear after the actions that cause them.
 - **No "let me look" screenshots**, no repeated screenshots of the same state.
 
@@ -67,23 +62,28 @@ A screenshot costs ~15–25k tokens. A DOM/console/network read costs a few hund
 
 No screenshot needed — the DOM query, console, and network fully diagnose the flow. Add a screenshot only if the bug is about how it *looks*.
 
-## Responsive testing
+## Navigate / resize / reload — all via browser_open
 
-Do NOT reload between viewports. Resize in place. Prove layout with geometry numbers, not screenshots — capture ONE screenshot only for a viewport that actually shows a problem.
+The live session is re-pointed with `browser_open`, not separate tools:
 
 ```
-→ browser_open { url: "http://localhost:3000" }
+→ browser_open { url: "http://localhost:3000/other" }   // navigate
+→ browser_open { url: "http://localhost:3000", reload: true }   // reload
+→ browser_open { url: "http://localhost:3000", width: 375, height: 812 }   // resize viewport
+```
 
-// Desktop
-→ browser_resize { width: 1280, height: 720 }
+## Responsive testing
+
+Re-point the viewport with `browser_open` (same url, new width/height). Prove layout with geometry numbers, not screenshots — capture ONE screenshot only for a viewport that actually shows a problem.
+
+```
+→ browser_open { url: "http://localhost:3000", width: 1280, height: 720 }
 → browser_evaluate { expression: "JSON.stringify({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth })" }
 
-// Tablet
-→ browser_resize { width: 768, height: 1024 }
+→ browser_open { url: "http://localhost:3000", width: 768, height: 1024 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 
-// Mobile
-→ browser_resize { width: 375, height: 812 }
+→ browser_open { url: "http://localhost:3000", width: 375, height: 812 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 
 // ONLY if a viewport overflows or looks broken, ONE screenshot to document it:
@@ -91,6 +91,8 @@ Do NOT reload between viewports. Resize in place. Prove layout with geometry num
 
 → browser_stop
 ```
+
+Geometry numbers (`scrollWidth`, `clientWidth`, `getBoundingClientRect()`) prove overflow, clipping, and positioning as text — far cheaper than an image per viewport.
 
 ## Form interaction
 
@@ -111,8 +113,8 @@ When the target requires login:
 ```
 → browser_open { url: "https://app.example.com/dashboard", profile: "user" }
 → browser_snapshot
-→ browser_cookies                      // inspect auth state (text, not screenshot)
-→ browser_local_storage                // inspect tokens
+→ browser_state { what: "cookies" }        // inspect auth state (text, not screenshot)
+→ browser_state { what: "localStorage" }   // inspect tokens
 ```
 
 Use `profile: "user"` only when the page returns 401/403 or redirects to login and no test account exists. Default (`profile: "isolated"`) otherwise.
@@ -121,8 +123,8 @@ Use `profile: "user"` only when the page returns 401/403 or redirects to login a
 
 ```
 → browser_open { url: "http://localhost:3000" }
-→ browser_set_cookie { name: "session", value: "abc123", domain: "localhost" }
-→ browser_reload
+→ browser_state { set: { name: "session", value: "abc123", domain: "localhost" } }
+→ browser_open { url: "http://localhost:3000", reload: true }
 → browser_snapshot
 ```
 
@@ -147,25 +149,34 @@ Headless is the default — faster, works in CI/SSH/containers.
 ## Full verification mode (geometry-driven, minimal screenshots)
 
 ```
-→ browser_open { url: "http://localhost:3000" }
-
-// Desktop — interact + read text evidence
-→ browser_resize { width: 1280, height: 720 }
+→ browser_open { url: "http://localhost:3000", width: 1280, height: 720 }
 → browser_snapshot
 → [interact with every visible control]
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 → browser_console
 → browser_network
 
-// Tablet + Mobile — geometry only
-→ browser_resize { width: 768, height: 1024 }
+→ browser_open { url: "http://localhost:3000", width: 768, height: 1024 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
-→ browser_resize { width: 375, height: 812 }
+→ browser_open { url: "http://localhost:3000", width: 375, height: 812 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 
 // Screenshot ONLY the viewports that showed a real problem
 → browser_console                      // final: all errors
 → browser_stop
+```
+
+## Prove the fix
+
+```
+→ browser_verify {
+    url: "http://localhost:3000",
+    assertions: [
+      { type: "console_errors", expect: "none", label: "no JS errors" },
+      { type: "network_status", expect: { failed: "none" }, label: "no failed requests" },
+      { type: "visible", expect: "Saved", label: "status shows Saved" }
+    ]
+  }
 ```
 
 ## Common mistakes
