@@ -6,88 +6,88 @@ Exact sequences for browser tasks using `browser-debug-agent` MCP tools. Follow 
 
 | Tool | Purpose |
 |------|---------|
-| `browser_open` | Open a URL — **and** navigate, resize, or reload a live session |
+| `browser_open` | Open URL (headless default; `visible:true` to watch; `profile:"user"` for auth) |
 | `browser_stop` | Close session, kill browser, clean up |
+| `browser_navigate` | Go to a different URL |
+| `browser_reload` | Reload current page |
+| `browser_resize` | Change viewport (responsive testing) |
 | `browser_wait` | Wait for a selector to appear |
 | `browser_snapshot` | Accessibility tree (structure + text + roles) |
 | `browser_interact` | Click, fill, press, hover, select |
-| `browser_evaluate` | Run JS in page context |
+| `browser_evaluate` | Run JS in page context — the workhorse for text evidence |
 | `browser_console` | Console log entries (errors, warnings) |
 | `browser_network` | HTTP requests/responses with real method |
-| `browser_screenshot` | PNG screenshot (returned as inline image) |
-| `browser_state` | Read cookies / localStorage, or set a cookie |
+| `browser_screenshot` | PNG screenshot (inline image, ~15–25k tokens — expensive) |
+| `browser_cookies` | Read all cookies |
+| `browser_set_cookie` | Inject a cookie (auth token, session) |
+| `browser_local_storage` | Read localStorage entries |
 | `browser_verify` | Run deterministic assertion manifest |
 | `browser_doctor` | Health check + available backends |
 
-### browser_open does four jobs
+## Evidence hierarchy — TEXT before pixels
 
-Once a session is live, call it again without `headless`/`profile`/`backend` and it
-reuses that session instead of restarting the browser:
+A screenshot costs ~15–25k tokens. A DOM/console/network read costs a few hundred. Almost every frontend bug is diagnosable from text. Climb this ladder and STOP at the first level that answers the question:
 
-```
-browser_open { url }                      -> open (or navigate to) a URL
-browser_open { width: 375, height: 667 }  -> resize the viewport
-browser_open { reload: true }             -> reload the current page
-browser_open { url, profile: "user" }     -> restart with a different profile
-```
+1. `browser_console` — errors, stack traces (names the file + line)
+2. `browser_network` — 4xx/5xx, wrong method, missing request
+3. `browser_snapshot` — page structure, roles, text, what's present/missing
+4. `browser_evaluate` — precise questions: element present? value? computed style? overflow?
+5. `browser_screenshot` — ONLY when appearance itself is the answer
 
-### browser_state reads and writes session state
-
-```
-browser_state {}                            -> cookies (values masked)
-browser_state { what: "localStorage" }      -> localStorage (credential keys masked)
-browser_state { set: { name, value, domain } } -> set a cookie
-browser_state { what: "cookies", reveal: true } -> raw values, only with user consent
-```
-
-Values that look like credentials come back masked (`eyJh...5c (83 chars, masked)`).
-That is deliberate: raw tokens in the transcript are a leak. Ask the user before
-passing `reveal: true`.
+| Question | Cheap text answer (not a screenshot) |
+|----------|--------------------------------------|
+| Is the element there / visible? | `browser_evaluate`: `!!document.querySelector(sel) && document.querySelector(sel).offsetParent !== null` |
+| Did the click/submit work? | `browser_evaluate` the resulting state, or `browser_console` / `browser_network` |
+| Is there an error? | `browser_console` |
+| What's on the page? | `browser_snapshot` |
+| Is the form filled right? | `browser_evaluate`: field `.value` |
+| Does the layout overflow? | `browser_evaluate`: `document.documentElement.scrollWidth > document.documentElement.clientWidth` |
+| Where/how big is an element? | `browser_evaluate`: `JSON.stringify(el.getBoundingClientRect())` |
+| What color / font / spacing? | `browser_evaluate`: `getComputedStyle(el).<prop>` |
 
 ## Critical rules
 
-- **Snapshot before interact**: always `browser_snapshot` before click/fill. Use the tree to find selectors.
-- **Snapshot after resize**: `browser_open` (width/height) changes layout. Old selectors may not be valid.
-- **Snapshot after navigate**: navigation changes the page.
-- **One action, then check**: after each action, snapshot or check console/network before proceeding.
+- **Text first.** Reach for console/network/snapshot/evaluate before ever considering a screenshot.
+- **Snapshot before interact**: `browser_snapshot` to find selectors before click/fill.
+- **Snapshot/evaluate after resize or navigate**: layout changed.
 - **Console after actions**: errors appear after the actions that cause them.
+- **No "let me look" screenshots**, no repeated screenshots of the same state.
 
-## Basic debug flow
+## Basic debug flow (text-first)
 
 ```
 → browser_open { url: "http://localhost:3000" }
-→ browser_snapshot                     // see the page structure
+→ browser_snapshot                     // structure — is the element there?
 → browser_interact { type: "click", selector: "#submit-btn" }
-→ browser_evaluate { expression: "document.getElementById('status').textContent" }
-→ browser_console                      // check for JS errors
-→ browser_network                      // check for failed requests
-→ browser_screenshot                   // visual evidence
+→ browser_evaluate { expression: "document.getElementById('status').textContent" }   // did it work?
+→ browser_console                      // any JS errors?
+→ browser_network                      // did the request fire, what status?
 → browser_stop
 ```
 
+No screenshot needed — the DOM query, console, and network fully diagnose the flow. Add a screenshot only if the bug is about how it *looks*.
+
 ## Responsive testing
 
-Do NOT reload between viewports. Resize in place:
+Do NOT reload between viewports. Resize in place. Prove layout with geometry numbers, not screenshots — capture ONE screenshot only for a viewport that actually shows a problem.
 
 ```
 → browser_open { url: "http://localhost:3000" }
 
-// Desktop (1280x720)
-→ browser_open { width: 1280, height: 720 }
-→ browser_snapshot
-→ browser_screenshot
+// Desktop
+→ browser_resize { width: 1280, height: 720 }
+→ browser_evaluate { expression: "JSON.stringify({ overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth, sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth })" }
+
+// Tablet
+→ browser_resize { width: 768, height: 1024 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 
-// Tablet (768x1024)
-→ browser_open { width: 768, height: 1024 }
-→ browser_snapshot                     // MANDATORY after resize
-→ browser_screenshot
-
-// Mobile (375x812)
-→ browser_open { width: 375, height: 812 }
-→ browser_snapshot                     // MANDATORY after resize
-→ browser_screenshot
+// Mobile
+→ browser_resize { width: 375, height: 812 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
+
+// ONLY if a viewport overflows or looks broken, ONE screenshot to document it:
+→ browser_screenshot
 
 → browser_stop
 ```
@@ -95,59 +95,46 @@ Do NOT reload between viewports. Resize in place:
 ## Form interaction
 
 ```
-→ browser_snapshot
-// See: textbox "Email", button "Save"
-
+→ browser_snapshot                     // see: textbox "Email", button "Save"
 → browser_interact { type: "fill", selector: "#email", value: "test@example.com" }
 → browser_interact { type: "click", selector: "#save-btn" }
 → browser_wait { selector: "#status" }
 → browser_evaluate { expression: "document.getElementById('status').textContent" }
-→ browser_console                      // check for errors after submit
-→ browser_network                      // verify POST request succeeded
+→ browser_console                      // errors after submit
+→ browser_network                      // verify POST succeeded
 ```
 
 ## Authenticated session (user's real Chrome profile)
 
-When the target page requires login/authentication:
+When the target requires login:
 
 ```
-→ browser_open { url: "https://app.example.com/dashboard", profile: "user", visible: true }
-// Chrome opens with the user's real cookies, login, localStorage
+→ browser_open { url: "https://app.example.com/dashboard", profile: "user" }
 → browser_snapshot
-→ browser_state                        // inspect auth state
-→ browser_state { what: "localStorage" }                // inspect tokens
+→ browser_cookies                      // inspect auth state (text, not screenshot)
+→ browser_local_storage                // inspect tokens
 ```
 
-Use `profile: "user"` only when:
-- The page returns 401/403 or redirects to login
-- No test account is available
-- The task explicitly requires real authenticated state
-
-Default (`profile: "isolated"`) is always preferred for safety.
+Use `profile: "user"` only when the page returns 401/403 or redirects to login and no test account exists. Default (`profile: "isolated"`) otherwise.
 
 ## Injecting auth tokens
 
-If you have a token but don't want to use the full user profile:
-
 ```
 → browser_open { url: "http://localhost:3000" }
-→ browser_state { set: { name: "session", value: "abc123", domain: "localhost" } }
-→ browser_open { reload: true }                       // reload with the new cookie
+→ browser_set_cookie { name: "session", value: "abc123", domain: "localhost" }
+→ browser_reload
 → browser_snapshot
 ```
 
 ## Visible mode (watch the browser)
 
-When the user asks to see, watch, or demo:
+Only when the user asks to see/watch/demo:
 
 ```
 → browser_open { url: "http://localhost:3000", visible: true }
-// Chrome window appears on screen — the user sees every action
-→ browser_interact { type: "click", selector: "#menu" }
-→ browser_screenshot                   // capture what the user sees
 ```
 
-Use `visible: true` only when explicitly asked. Headless is faster and works everywhere (CI, SSH, containers).
+Headless is the default — faster, works in CI/SSH/containers.
 
 ## Wait for dynamic content
 
@@ -157,40 +144,35 @@ Use `visible: true` only when explicitly asked. Headless is faster and works eve
 → browser_snapshot
 ```
 
-## Full verification mode
+## Full verification mode (geometry-driven, minimal screenshots)
 
 ```
 → browser_open { url: "http://localhost:3000" }
 
-// 1. Desktop
-→ browser_open { width: 1280, height: 720 }
+// Desktop — interact + read text evidence
+→ browser_resize { width: 1280, height: 720 }
 → browser_snapshot
 → [interact with every visible control]
+→ browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
 → browser_console
 → browser_network
-→ browser_screenshot
 
-// 2. Tablet
-→ browser_open { width: 768, height: 1024 }
-→ browser_snapshot                     // MANDATORY
+// Tablet + Mobile — geometry only
+→ browser_resize { width: 768, height: 1024 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
-→ browser_screenshot
-
-// 3. Mobile
-→ browser_open { width: 375, height: 812 }
-→ browser_snapshot                     // MANDATORY
+→ browser_resize { width: 375, height: 812 }
 → browser_evaluate { expression: "document.documentElement.scrollWidth > document.documentElement.clientWidth" }
-→ browser_screenshot
 
-// 4. Final
-→ browser_console                      // all errors across all viewports
+// Screenshot ONLY the viewports that showed a real problem
+→ browser_console                      // final: all errors
 → browser_stop
 ```
 
 ## Common mistakes
 
-- Interacting without a prior `browser_snapshot` → you don't know the page structure
-- Using selectors from before a `browser_open` (width/height) → layout changed, elements moved
-- Checking `browser_console` before actions → misses errors caused by the action
-- Using `profile: "user"` by default → exposes real credentials unnecessarily
-- Forgetting `browser_stop` → Chrome process stays alive
+- Taking a screenshot to "have a look" before reading text evidence
+- Screenshotting every viewport instead of using geometry numbers
+- Interacting without a prior `browser_snapshot`
+- Checking `browser_console` before the action that causes the error
+- Using `profile: "user"` by default — exposes real credentials
+- Forgetting `browser_stop` — leaves Chrome running

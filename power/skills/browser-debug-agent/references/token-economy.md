@@ -48,7 +48,26 @@ Only widen data collection when the binary probe is insufficient.
 
 ## Screenshots
 
-Screenshots are expensive evidence. Use them when visual appearance itself is part of correctness, not as a replacement for DOM queries.
+A screenshot is the single most expensive piece of evidence: one PNG costs ~15–25k tokens, versus ~50–500 tokens for a DOM query or console read. Treat every screenshot as a deliberate, justified cost.
+
+Before taking a screenshot, ask: **can this be answered as text?** Almost always yes.
+
+| Question | Text answer (cheap) |
+|----------|---------------------|
+| Is the element present/visible? | `browser_evaluate`: `!!document.querySelector(sel)` and its `offsetParent !== null` |
+| Did the interaction succeed? | `browser_evaluate` the resulting DOM/state, or `browser_console` / `browser_network` |
+| Is there an error? | `browser_console` |
+| What is on the page? | `browser_snapshot` |
+| Does the layout overflow? | `browser_evaluate`: `scrollWidth > clientWidth` |
+| Where/how big is an element? | `browser_evaluate`: `getBoundingClientRect()` |
+| What color / font / spacing? | `browser_evaluate`: `getComputedStyle(el).<prop>` |
+
+Take a screenshot ONLY when:
+- Appearance itself is the spec (visual regression, design fidelity) and cannot be reduced to numbers.
+- The user explicitly asks to see it.
+- One final image documents a fix that is inherently visual.
+
+Never: screenshot to "look around" before reading text evidence; screenshot the same state twice; screenshot when a geometry number already proves the point.
 
 ## Traces
 
